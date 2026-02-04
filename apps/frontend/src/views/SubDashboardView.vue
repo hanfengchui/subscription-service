@@ -1306,10 +1306,30 @@ const formatDate = (dateString) => {
 
 const copyUrl = async (url) => {
   try {
-    await navigator.clipboard.writeText(url)
-    showToast('已复制到剪贴板', 'success')
+    // 优先使用现代 Clipboard API（需要 HTTPS 或 localhost）
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(url)
+      showToast('已复制到剪贴板', 'success')
+      return
+    }
+    // 回退方案：使用传统的 execCommand（兼容 HTTP）
+    const textArea = document.createElement('textarea')
+    textArea.value = url
+    textArea.style.position = 'fixed'
+    textArea.style.left = '-9999px'
+    textArea.style.top = '-9999px'
+    document.body.appendChild(textArea)
+    textArea.focus()
+    textArea.select()
+    const successful = document.execCommand('copy')
+    document.body.removeChild(textArea)
+    if (successful) {
+      showToast('已复制到剪贴板', 'success')
+    } else {
+      showToast('复制失败，请手动复制', 'error')
+    }
   } catch (e) {
-    showToast('复制失败', 'error')
+    showToast('复制失败，请手动复制', 'error')
   }
 }
 

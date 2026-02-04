@@ -9,6 +9,7 @@ const logger = require('../utils/logger')
 
 // 认证服务配置
 const AUTH_PORT = parseInt(process.env.HY2_AUTH_PORT) || 9998
+const AUTH_HOST = process.env.HY2_AUTH_HOST || '0.0.0.0'  // 默认监听所有接口，以便宿主机访问
 const AUTH_SECRET = process.env.HY2_AUTH_SECRET || 'CHANGE_ME'
 
 class Hysteria2AuthService {
@@ -75,9 +76,9 @@ class Hysteria2AuthService {
     })
 
     return new Promise((resolve, reject) => {
-      this.server = this.app.listen(AUTH_PORT, '127.0.0.1', () => {
+      this.server = this.app.listen(AUTH_PORT, AUTH_HOST, () => {
         this.isRunning = true
-        logger.info(`✅ Hysteria2 auth service started on 127.0.0.1:${AUTH_PORT}`)
+        logger.info(`✅ Hysteria2 auth service started on ${AUTH_HOST}:${AUTH_PORT}`)
         resolve()
       })
 
