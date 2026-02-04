@@ -1,0 +1,59 @@
+# 配置说明
+
+编辑仓库根目录下的 `.env`。
+
+## 核心
+- `APP_PORT`：Nginx 对外端口（默认 18080）
+- `NODE_ENV`：建议 `production`
+- `PORT`：后端容器内端口（默认 3000）
+- `TRUST_PROXY`：如果前面有 Nginx/反代设为 `true`
+- `SUB_PUBLIC_BASE_URL`：可选，固定订阅链接的外部访问域名/端口
+
+## 管理员 API
+- `SUB_ADMIN_API_KEY`：/sub/admin/* 的 API Key
+
+## MySQL
+- `MYSQL_HOST`
+- `MYSQL_PORT`
+- `MYSQL_DATABASE`
+- `MYSQL_USER`
+- `MYSQL_PASSWORD`
+- `MYSQL_ROOT_PASSWORD`
+
+## Redis
+- `REDIS_HOST`
+- `REDIS_PORT`
+- `REDIS_PASSWORD`
+- `REDIS_DB`
+
+## 订阅节点
+Hysteria2：
+- `SUB_HY2_SERVER`
+- `SUB_HY2_PORT`
+- `SUB_HY2_PASSWORD`
+- `SUB_HY2_SNI`
+- `SUB_HY2_INSECURE`
+
+VLESS gRPC：
+- `SUB_VLESS_SERVER`
+- `SUB_VLESS_PORT`
+- `SUB_VLESS_UUID`
+- `SUB_VLESS_SNI`
+- `SUB_VLESS_TYPE`
+- `SUB_VLESS_SERVICE_NAME`
+- `SUB_VLESS_MODE`
+
+## Hysteria2 / 流量同步
+- `HY2_STATS_URL`
+- `HY2_STATS_SECRET`
+- `TRAFFIC_SYNC_INTERVAL`
+- `TRAFFIC_SYNC_CLEAR`
+- `TRAFFIC_SYNC_ENABLED`
+
+## Hysteria2 认证服务
+- `HY2_AUTH_PORT`
+- `HY2_AUTH_SECRET`
+- `HY2_AUTH_ENABLED`
+
+## Xray
+- `XRAY_API_PORT`

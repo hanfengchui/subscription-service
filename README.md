@@ -1,5 +1,7 @@
 # Subscription Service (Frontend + Backend)
 
+[中文](README.zh-CN.md) | [English](README.md)
+
 A self‑hosted subscription panel with a dedicated frontend, backend APIs, and one‑command Docker Compose install. It supports tokenized subscription links, sub‑users, traffic sync from Hysteria2, and optional Xray stats.
 
 ## Features
@@ -25,8 +27,9 @@ After startup:
 - Copy `.env.example` to `.env` and edit values as needed.
 - The backend uses MySQL for persistent data and Redis for sessions.
 
-See: `docs/config.md`
-API docs: `docs/api.md`
+Docs:
+- English: `docs/config.md`, `docs/api.md`
+- 中文：`docs/config.zh-CN.md`, `docs/api.zh-CN.md`
 
 ## Admin API
 Admin endpoints are under `/sub/admin/*` and protected by API key.
