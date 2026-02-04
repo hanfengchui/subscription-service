@@ -22,10 +22,31 @@ bash scripts/install.sh
 安装脚本会自动：
 1. 检查 Docker 和 Docker Compose 版本
 2. 检查端口是否被占用（默认 18080）
-3. 从 `.env.example` 生成 `.env` 配置文件
-4. 自动生成所有密钥和数据库密码
-5. 构建 Docker 镜像并启动服务
-6. 等待服务就绪并显示访问地址
+3. 检测服务器公网 IP
+4. 自动检测已有的 Hysteria2/Xray 配置
+5. 交互式配置节点信息（服务器地址、端口、SNI 等）
+6. 从 `.env.example` 生成 `.env` 配置文件
+7. 自动生成所有密钥和数据库密码
+8. 构建 Docker 镜像并启动服务
+9. 等待服务就绪并显示访问地址
+
+## 一键卸载
+
+如需完全卸载服务，运行：
+
+```bash
+bash scripts/uninstall.sh
+```
+
+卸载脚本会清理：
+- 所有 Docker 容器 (backend, nginx, mysql, redis)
+- Docker 镜像和构建缓存
+- 数据卷（包括数据库数据）
+- Docker 网络
+- .env 配置文件
+- 可选删除整个项目目录
+
+> **警告**: 卸载操作不可逆，所有数据将永久丢失！
 
 ## 手动安装
 

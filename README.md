@@ -41,17 +41,35 @@ bash scripts/install.sh
 ```
 
 The script will automatically:
-- Check Docker environment
+- Check Docker environment and version
+- Detect server public IP
+- Auto-detect existing Hysteria2/Xray configurations
+- Interactive node configuration
 - Generate random secrets and database passwords
 - Build and start all services
 
-### 3. Access Services
+### 3. One-Click Uninstall
+
+To completely uninstall, run:
+
+```bash
+bash scripts/uninstall.sh
+```
+
+The uninstall script will clean up:
+- All Docker containers and images
+- Data volumes (including database data)
+- Docker networks and build cache
+- .env configuration file
+- Optionally delete the entire project directory
+
+### 4. Access Services
 
 After installation:
 - **Frontend Panel**: `http://<SERVER_IP>:18080/`
 - **API Endpoint**: `http://<SERVER_IP>:18080/sub/`
 
-### 4. Get Admin API Key
+### 5. Get Admin API Key
 
 ```bash
 grep SUB_ADMIN_API_KEY .env
@@ -186,7 +204,8 @@ subscription-service/
 │   ├── compose/          # Docker Compose config
 │   └── nginx/            # Nginx config
 ├── scripts/
-│   └── install.sh        # One-click install script
+│   ├── install.sh        # One-click install script
+│   └── uninstall.sh      # One-click uninstall script
 ├── docs/                 # Documentation
 ├── .env.example          # Environment variables example
 └── README.md

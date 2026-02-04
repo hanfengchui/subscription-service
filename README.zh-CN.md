@@ -41,17 +41,35 @@ bash scripts/install.sh
 ```
 
 脚本会自动：
-- 检查 Docker 环境
+- 检查 Docker 环境和版本
+- 检测服务器公网 IP
+- 自动检测已有的 Hysteria2/Xray 配置
+- 交互式配置节点信息
 - 生成随机密钥和数据库密码
 - 构建并启动所有服务
 
-### 3. 访问服务
+### 3. 一键卸载
+
+如需完全卸载，运行：
+
+```bash
+bash scripts/uninstall.sh
+```
+
+卸载脚本会清理：
+- 所有 Docker 容器和镜像
+- 数据卷（包括数据库数据）
+- Docker 网络和构建缓存
+- .env 配置文件
+- 可选删除整个项目目录
+
+### 4. 访问服务
 
 安装完成后：
 - **前端面板**: `http://<服务器IP>:18080/`
 - **API 接口**: `http://<服务器IP>:18080/sub/`
 
-### 4. 获取管理员密钥
+### 5. 获取管理员密钥
 
 ```bash
 grep SUB_ADMIN_API_KEY .env
@@ -186,7 +204,8 @@ subscription-service/
 │   ├── compose/          # Docker Compose 配置
 │   └── nginx/            # Nginx 配置
 ├── scripts/
-│   └── install.sh        # 一键安装脚本
+│   ├── install.sh        # 一键安装脚本
+│   └── uninstall.sh      # 一键卸载脚本
 ├── docs/                 # 文档
 ├── .env.example          # 环境变量示例
 └── README.md
