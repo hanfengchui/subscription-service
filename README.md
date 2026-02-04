@@ -4,6 +4,12 @@
 
 A self-hosted subscription management panel supporting Hysteria2 and VLESS node management, user subscriptions, traffic statistics and synchronization. Suitable for individuals or small teams managing proxy node subscriptions.
 
+## Screenshots
+
+| Login Page | Dashboard |
+|:----------:|:---------:|
+| ![Login](docs/images/login.png) | ![Dashboard](docs/images/dashboard.png) |
+
 ## Features
 
 - **Independent Frontend & Backend** - Vue 3 frontend + Express backend, can be deployed separately
