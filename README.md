@@ -17,7 +17,7 @@ A self-hosted subscription management panel supporting Hysteria2 and VLESS node 
 | Feature | Description |
 |---------|-------------|
 | **User Management** | Supports admin and regular user roles, admins can create and manage sub-users |
-| **Subscription Links** | Auto-generated tokenized subscription links with expiry and one-time use limits |
+| **Subscription Links** | Auto-generated tokenized subscription links with expiry and one-time use (burn-after-reading) mode |
 | **Multi-Node Support** | Supports Hysteria2 and VLESS (gRPC/WebSocket/TCP) node configuration |
 | **Traffic Statistics** | Automatically sync user traffic data from Hysteria2, supports traffic limits and reset |
 | **Hysteria2 Authentication** | Built-in HTTP auth service, directly integrates with Hysteria2 server |
@@ -28,9 +28,9 @@ A self-hosted subscription management panel supporting Hysteria2 and VLESS node 
 | Module | Features |
 |--------|----------|
 | **My Subscription** | Traffic dashboard, subscription link management, multi-format export (Clash/V2Ray/Surge/Shadowrocket/Quantumult X/Sing-box), node list, QR code generation |
-| **User Management** | Sub-user statistics, create/edit/delete users, reset password, reset traffic, regenerate subscription links |
+| **User Management** | Sub-user statistics (up to 20 users), create/edit/delete users, custom traffic limits, reset password, reset traffic, regenerate subscription links |
 | **Tutorials** | Quick start guide, multi-client tutorials (Clash Verge/V2RayN/Shadowrocket/V2RayNG), FAQ |
-| **Account Settings** | Change password |
+| **Account Settings** | Change password, subscription link mode (strict/loose) |
 
 ### Technical Features
 
@@ -379,6 +379,26 @@ docker compose -f deploy/compose/docker-compose.yml --env-file .env up -d --buil
 ```
 
 ## FAQ
+
+### Subscription Links
+
+**Q: What is "burn-after-reading" (one-time use) mode?**
+
+A: When creating sub-users, subscription links are generated in one-time use mode by default. This means:
+- The subscription link can only be used **once** to fetch subscription content (node list)
+- After the first successful fetch, the link becomes invalid and shows "Subscription link expired, please regenerate"
+- **Important**: This only restricts fetching subscription content; nodes already imported to client apps will continue to work normally
+- Users can regenerate a new subscription link anytime from the dashboard
+
+**Q: Why use one-time links?**
+
+A: One-time links prevent subscription link sharing. Once a user imports the subscription to their client, the link becomes invalid, preventing others from using the same link.
+
+**Q: What is the difference between strict and loose mode?**
+
+A: Admins can choose the subscription link mode in Account Settings:
+- **Strict mode** (default): When regenerating a subscription link, old links become invalid immediately. Prevents link sharing.
+- **Loose mode**: When regenerating a subscription link, old links remain valid. Allows users to use different links on multiple devices.
 
 ### Installation Related
 

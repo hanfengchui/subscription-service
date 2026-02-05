@@ -98,6 +98,8 @@ class SubscriptionMySQLClient {
     await this._addColumnIfNotExists('sub_users', 'traffic_limit', 'BIGINT DEFAULT 536870912000') // 默认500GB
     await this._addColumnIfNotExists('sub_users', 'traffic_used', 'BIGINT DEFAULT 0')
     await this._addColumnIfNotExists('sub_users', 'traffic_reset_at', 'DATETIME DEFAULT NULL')
+    // 管理员配置：订阅链接模式 strict=严格模式（新链接生成后旧链接失效），loose=宽松模式（多链接并存）
+    await this._addColumnIfNotExists('sub_users', 'token_mode', "VARCHAR(20) DEFAULT 'strict'")
 
     // 订阅 Token 表
     await this.pool.execute(`
@@ -216,7 +218,7 @@ class SubscriptionMySQLClient {
   }
 
   async updateUser(userId, updates) {
-    const allowedFields = ['name', 'role', 'parent_id', 'subscription_token', 'expires_at', 'is_active', 'last_login_at', 'password_hash', 'traffic_limit', 'traffic_used', 'traffic_reset_at']
+    const allowedFields = ['name', 'role', 'parent_id', 'subscription_token', 'expires_at', 'is_active', 'last_login_at', 'password_hash', 'traffic_limit', 'traffic_used', 'traffic_reset_at', 'token_mode']
     const setClauses = []
     const values = []
 
@@ -306,16 +308,36 @@ class SubscriptionMySQLClient {
     await this.pool.execute(sql, [token])
   }
 
-  // 重置 Token（生成新 Token，保留旧 Token 继续有效）
-  // 新逻辑：创建新 token 记录，旧 token 保持有效，所有 token 共享用户流量
-  async regenerateToken(oldToken, newToken) {
+  // 使用户的所有旧 token 失效（严格模式）
+  async invalidateUserTokens(userId) {
+    const sql = `UPDATE sub_tokens SET status = 'revoked' WHERE user_id = ? AND status = 'active'`
+    await this.pool.execute(sql, [userId])
+  }
+
+  // 重置 Token（根据 strictMode 参数决定模式）
+  // strictMode=true: 严格模式，生成新 Token 后旧 Token 立即失效
+  // strictMode=false: 宽松模式，新旧 Token 并存
+  async regenerateToken(oldToken, newToken, strictMode = true) {
     // 获取旧 token 的信息
     const oldTokenData = await this.getToken(oldToken)
     if (!oldTokenData) {
       return false
     }
 
-    // 创建新 token 记录，继承旧 token 的配置
+    // 严格模式：先使该用户的所有旧 token 失效
+    if (strictMode) {
+      if (oldTokenData.userId) {
+        await this.invalidateUserTokens(oldTokenData.userId)
+      } else {
+        // 如果没有 userId，只使当前 token 失效
+        await this.pool.execute(
+          `UPDATE sub_tokens SET status = 'revoked' WHERE token = ?`,
+          [oldToken]
+        )
+      }
+    }
+
+    // 创建新 token 记录
     const newTokenId = newToken.substring(0, 8)
 
     // 重新计算过期时间：从当前时间开始 30 天
@@ -333,7 +355,7 @@ class SubscriptionMySQLClient {
     await this.pool.execute(sql, [
       newTokenId,
       newToken,
-      oldTokenData.name ? `${oldTokenData.name} (新)` : '新订阅链接',
+      oldTokenData.name || '订阅链接',
       expiresAt,
       oldTokenData.maxAccess || 0,
       oldTokenData.oneTimeUse || false,
@@ -581,7 +603,9 @@ class SubscriptionMySQLClient {
       // 流量限制字段
       trafficLimit: parseInt(row.traffic_limit) || 536870912000, // 默认500GB
       trafficUsed: parseInt(row.traffic_used) || 0,
-      trafficResetAt: row.traffic_reset_at ? row.traffic_reset_at.toISOString() : null
+      trafficResetAt: row.traffic_reset_at ? row.traffic_reset_at.toISOString() : null,
+      // 订阅链接模式：strict=严格模式，loose=宽松模式
+      tokenMode: row.token_mode || 'strict'
     }
   }
 

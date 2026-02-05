@@ -898,6 +898,76 @@
             </form>
           </div>
         </div>
+
+        <!-- 管理员设置：订阅链接模式 -->
+        <div
+          v-if="subStore.isAdmin"
+          class="overflow-hidden rounded-2xl border border-gray-200/50 bg-white/70 shadow-xl backdrop-blur-sm dark:border-gray-700/50 dark:bg-gray-800/70"
+        >
+          <div
+            class="border-b border-gray-100 bg-gradient-to-r from-purple-500/10 to-pink-500/10 px-6 py-4 dark:border-gray-700/50"
+          >
+            <h3 class="flex items-center gap-2 text-lg font-semibold text-gray-900 dark:text-white">
+              <i class="fas fa-cog text-purple-500"></i>
+              订阅链接设置
+            </h3>
+          </div>
+          <div class="p-6">
+            <div class="max-w-md space-y-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3"
+                  >订阅链接模式</label
+                >
+                <div class="space-y-3">
+                  <label
+                    class="flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-all"
+                    :class="adminSettings.tokenMode === 'strict'
+                      ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
+                      : 'border-gray-200 dark:border-gray-600 hover:border-purple-300'"
+                  >
+                    <input
+                      v-model="adminSettings.tokenMode"
+                      type="radio"
+                      value="strict"
+                      class="mt-1"
+                      @change="handleSaveSettings"
+                    />
+                    <div>
+                      <div class="font-medium text-gray-900 dark:text-white">严格模式</div>
+                      <div class="text-sm text-gray-500 dark:text-gray-400">
+                        生成新订阅链接后，旧链接立即失效。防止订阅链接被分享。
+                      </div>
+                    </div>
+                  </label>
+                  <label
+                    class="flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-all"
+                    :class="adminSettings.tokenMode === 'loose'
+                      ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
+                      : 'border-gray-200 dark:border-gray-600 hover:border-purple-300'"
+                  >
+                    <input
+                      v-model="adminSettings.tokenMode"
+                      type="radio"
+                      value="loose"
+                      class="mt-1"
+                      @change="handleSaveSettings"
+                    />
+                    <div>
+                      <div class="font-medium text-gray-900 dark:text-white">宽松模式</div>
+                      <div class="text-sm text-gray-500 dark:text-gray-400">
+                        生成新订阅链接后，旧链接仍然有效。允许用户在多设备使用不同链接。
+                      </div>
+                    </div>
+                  </label>
+                </div>
+              </div>
+              <p class="text-xs text-gray-500 dark:text-gray-400">
+                <i class="fas fa-info-circle mr-1"></i>
+                此设置影响您和您的下级用户重新生成订阅链接时的行为
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
     </main>
 
@@ -986,6 +1056,20 @@
             <label class="ml-2 text-sm text-gray-700 dark:text-gray-300" for="oneTimeUse"
               >一次性订阅链接（使用后失效）</label
             >
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300"
+              >流量限制 (GB)</label
+            >
+            <input
+              v-model.number="createForm.trafficLimit"
+              class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+              type="number"
+              min="1"
+              max="10000"
+              placeholder="500"
+            />
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">默认 500GB，最大 10TB</p>
           </div>
           <div class="flex justify-end space-x-3">
             <button
@@ -1080,13 +1164,16 @@ const showCreateModal = ref(false)
 const showResetModal = ref(false)
 const selectedUser = ref(null)
 
+// 管理员设置
+const adminSettings = reactive({ tokenMode: 'strict' })
+
 // 二维码相关
 const showQrModal = ref(false)
 const qrCodeUrl = ref('')
 const qrCanvas = ref(null)
 
 const passwordForm = reactive({ oldPassword: '', newPassword: '', confirmPassword: '' })
-const createForm = reactive({ username: '', password: '', name: '', oneTimeUse: true })
+const createForm = reactive({ username: '', password: '', name: '', oneTimeUse: true, trafficLimit: 500 })
 const resetForm = reactive({ newPassword: '' })
 
 // 多格式订阅配置
@@ -1338,6 +1425,7 @@ const loadSubscription = async () => {
     subscription.value = await subStore.getSubscription()
   } catch (e) {
     console.error('Failed to load subscription:', e)
+    subscription.value = {} // 设置默认值，避免永久加载
   }
 }
 
@@ -1346,6 +1434,7 @@ const loadNodes = async () => {
     nodes.value = await subStore.getNodes()
   } catch (e) {
     console.error('Failed to load nodes:', e)
+    nodes.value = [] // 设置默认值
   }
 }
 
@@ -1354,6 +1443,7 @@ const loadUserTraffic = async () => {
     userTraffic.value = await subStore.getUserTraffic()
   } catch (e) {
     console.error('Failed to load user traffic:', e)
+    userTraffic.value = {} // 设置默认值
   }
 }
 
@@ -1365,6 +1455,8 @@ const loadSubUsers = async () => {
     adminStats.value = response.stats || null
   } catch (e) {
     console.error('Failed to load sub users:', e)
+    subUsers.value = [] // 设置默认值
+    adminStats.value = null
   }
 }
 
@@ -1405,7 +1497,12 @@ const handleChangePassword = async () => {
 const handleCreateUser = async () => {
   creating.value = true
   try {
-    const result = await subStore.createSubUser(createForm)
+    // 将流量限制从 GB 转换为字节
+    const userData = {
+      ...createForm,
+      trafficLimit: createForm.trafficLimit * 1024 * 1024 * 1024
+    }
+    const result = await subStore.createSubUser(userData)
     if (result.success) {
       showToast('用户创建成功', 'success')
       showCreateModal.value = false
@@ -1413,6 +1510,7 @@ const handleCreateUser = async () => {
       createForm.password = ''
       createForm.name = ''
       createForm.oneTimeUse = true
+      createForm.trafficLimit = 500
       await loadSubUsers()
     }
   } catch (e) {
@@ -1479,6 +1577,25 @@ const handleResetTraffic = async (user) => {
   }
 }
 
+const loadAdminSettings = async () => {
+  if (!subStore.isAdmin) return
+  try {
+    const settings = await subStore.getSettings()
+    adminSettings.tokenMode = settings.tokenMode || 'strict'
+  } catch (e) {
+    console.error('Failed to load admin settings:', e)
+  }
+}
+
+const handleSaveSettings = async () => {
+  try {
+    await subStore.updateSettings({ tokenMode: adminSettings.tokenMode })
+    showToast('设置已保存', 'success')
+  } catch (e) {
+    showToast(e.response?.data?.error || '保存失败', 'error')
+  }
+}
+
 const handleLogout = async () => {
   await subStore.logout()
   showToast('已退出登录', 'success')
@@ -1491,6 +1608,12 @@ onMounted(async () => {
     router.push('/sub-login')
     return
   }
-  await Promise.all([loadSubscription(), loadNodes(), loadUserTraffic(), loadSubUsers()])
+  // 先验证 session 有效性，避免 Token 过期导致加载卡住
+  const isValid = await subStore.verifySession()
+  if (!isValid) {
+    router.push('/sub-login')
+    return
+  }
+  await Promise.all([loadSubscription(), loadNodes(), loadUserTraffic(), loadSubUsers(), loadAdminSettings()])
 })
 </script>

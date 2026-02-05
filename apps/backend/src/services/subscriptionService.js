@@ -414,9 +414,11 @@ class SubscriptionService {
 
   /**
    * 重新生成订阅 Token
-   * 新逻辑：创建新链接，旧链接保持有效，所有链接共享用户流量
+   * 根据用户的 token_mode 配置决定模式：
+   * - strict: 严格模式，生成新链接后旧链接失效
+   * - loose: 宽松模式，新旧链接并存
    */
-  async regenerateToken(oldToken) {
+  async regenerateToken(oldToken, tokenMode = 'strict') {
     await this.ensureMySQL()
 
     const tokenData = await subscriptionMysql.getToken(oldToken)
@@ -427,13 +429,15 @@ class SubscriptionService {
     // 生成新 Token
     const newToken = this.generateToken()
 
-    // 创建新 token 记录（旧 token 保持有效）
-    const created = await subscriptionMysql.regenerateToken(oldToken, newToken)
+    // 根据模式决定是否使旧 token 失效
+    const strictMode = tokenMode === 'strict'
+    const created = await subscriptionMysql.regenerateToken(oldToken, newToken, strictMode)
     if (!created) {
       return { success: false, error: 'Failed to create new token' }
     }
 
-    logger.info(`🔄 Created new subscription token for user ${tokenData.userId}: ${newToken.substring(0, 8)}... (old token ${oldToken.substring(0, 8)}... still valid)`)
+    const modeDesc = strictMode ? '旧链接已失效' : '旧链接仍有效'
+    logger.info(`🔄 Created new subscription token for user ${tokenData.userId}: ${newToken.substring(0, 8)}... (${modeDesc})`)
 
     return {
       success: true,
@@ -445,7 +449,7 @@ class SubscriptionService {
   /**
    * 为用户重新生成订阅链接
    */
-  async regenerateUserToken(userId) {
+  async regenerateUserToken(userId, tokenMode = 'strict') {
     await this.ensureMySQL()
 
     // 获取用户关联的 Token
@@ -455,7 +459,7 @@ class SubscriptionService {
     }
 
     // 重新生成
-    return this.regenerateToken(tokenData.token)
+    return this.regenerateToken(tokenData.token, tokenMode)
   }
 
   /**

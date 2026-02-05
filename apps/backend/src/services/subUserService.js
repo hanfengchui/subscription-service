@@ -15,9 +15,9 @@ const SUB_SESSION_PREFIX = 'sub_session:'
 const SESSION_TTL = 24 * 60 * 60 // 24小时
 
 // 配置常量
-const MAX_SUB_USERS = 3 // 每个管理员最多创建3个下级用户
+const MAX_SUB_USERS = 20 // 每个管理员最多创建20个下级用户
 const DEFAULT_TRAFFIC_LIMIT = 500 * 1024 * 1024 * 1024 // 500GB per user
-const TOTAL_TRAFFIC_LIMIT = 1500 * 1024 * 1024 * 1024 // 1500GB total
+const TOTAL_TRAFFIC_LIMIT = 10 * 1024 * 1024 * 1024 * 1024 // 10TB total
 
 class SubUserService {
   constructor() {
@@ -475,12 +475,17 @@ class SubUserService {
       return { success: false, error: `已达到下级用户数量上限（最多${this.maxSubUsers}个）` }
     }
 
-    // 创建用户，设置默认流量限制
+    // 使用自定义流量限制或默认值
+    const trafficLimit = options.trafficLimit && options.trafficLimit > 0
+      ? options.trafficLimit
+      : this.defaultTrafficLimit
+
+    // 创建用户，设置流量限制
     const result = await this.createUser(username, password, {
       ...options,
       role: 'user',
       parentId: adminId,
-      trafficLimit: this.defaultTrafficLimit,
+      trafficLimit,
       trafficUsed: 0
     })
 

@@ -4,8 +4,28 @@ import axios from 'axios'
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || ''
 
 const api = axios.create({
-  baseURL: apiBaseUrl
+  baseURL: apiBaseUrl,
+  timeout: 15000 // 15秒超时
 })
+
+// 标记是否正在处理401错误，避免重复跳转
+let isHandling401 = false
+
+// 401 错误拦截器 - 自动处理 Token 过期
+api.interceptors.response.use(
+  response => response,
+  error => {
+    if (error.response?.status === 401 && !isHandling401) {
+      isHandling401 = true
+      // 清除本地存储
+      localStorage.removeItem('sub_token')
+      localStorage.removeItem('sub_user')
+      // 跳转到登录页
+      window.location.href = '/sub-login'
+    }
+    return Promise.reject(error)
+  }
+)
 
 export const useSubscriptionStore = defineStore('subscription', () => {
   const token = ref(localStorage.getItem('sub_token') || '')
@@ -172,6 +192,18 @@ export const useSubscriptionStore = defineStore('subscription', () => {
     return response.data
   }
 
+  // 获取管理员设置
+  const getSettings = async () => {
+    const response = await api.get('/sub/auth/settings', { headers: getAuthHeaders() })
+    return response.data.data
+  }
+
+  // 更新管理员设置
+  const updateSettings = async (settings) => {
+    const response = await api.put('/sub/auth/settings', settings, { headers: getAuthHeaders() })
+    return response.data
+  }
+
   return {
     token,
     user,
@@ -194,6 +226,8 @@ export const useSubscriptionStore = defineStore('subscription', () => {
     deleteSubUser,
     resetSubUserPassword,
     regenerateSubUserToken,
-    resetSubUserTraffic
+    resetSubUserTraffic,
+    getSettings,
+    updateSettings
   }
 })
