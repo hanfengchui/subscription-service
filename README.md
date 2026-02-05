@@ -46,11 +46,17 @@ cd subscription-service
 bash scripts/install.sh
 ```
 
+Non-interactive (skip all prompts):
+
+```bash
+bash scripts/install.sh --non-interactive
+```
+
 The script will automatically:
 - Check Docker environment and version
 - Detect server public IP
 - Auto-detect existing Hysteria2/Xray configurations
-- Interactive node configuration
+- Interactive node configuration (skipped in non-interactive mode)
 - Generate random secrets and database passwords
 - Build and start all services
 
@@ -82,6 +88,14 @@ grep SUB_ADMIN_API_KEY .env
 ```
 
 Use this key to call admin APIs and create users.
+
+### 6. Default Admin Account
+
+On first start, the service auto-creates an `admin` account (disable with `SUB_INIT_ADMIN=false`). The default password is printed in backend logs:
+
+```bash
+docker compose -f deploy/compose/docker-compose.yml --env-file .env logs --tail=200 backend | grep "Default admin password"
+```
 
 ## Architecture
 

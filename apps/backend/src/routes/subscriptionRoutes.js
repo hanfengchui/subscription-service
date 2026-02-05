@@ -96,6 +96,18 @@ async function authenticateSubAdmin(req, res, next) {
   next()
 }
 
+/**
+ * 健康检查
+ * GET /sub/health
+ */
+router.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'subscription-service',
+    timestamp: new Date().toISOString()
+  })
+})
+
 // ==================== 用户认证端点 ====================
 
 /**

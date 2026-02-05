@@ -8,6 +8,7 @@ const redis = require('./models/redis')
 const subscriptionRoutes = require('./routes/subscriptionRoutes')
 const trafficSyncService = require('./services/trafficSyncService')
 const hysteria2AuthService = require('./services/hysteria2AuthService')
+const subUserService = require('./services/subUserService')
 
 const app = express()
 
@@ -67,6 +68,15 @@ async function startServices() {
 async function start() {
   try {
     await startServices()
+
+    const initAdminEnabled = process.env.SUB_INIT_ADMIN !== 'false'
+    if (initAdminEnabled) {
+      try {
+        await subUserService.initDefaultAdmin()
+      } catch (error) {
+        logger.error('❌ Failed to init default admin:', error)
+      }
+    }
 
     const server = app.listen(config.server.port, config.server.host, () => {
       logger.info(

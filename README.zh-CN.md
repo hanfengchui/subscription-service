@@ -46,11 +46,17 @@ cd subscription-service
 bash scripts/install.sh
 ```
 
+非交互模式（跳过所有提示）：
+
+```bash
+bash scripts/install.sh --non-interactive
+```
+
 脚本会自动：
 - 检查 Docker 环境和版本
 - 检测服务器公网 IP
 - 自动检测已有的 Hysteria2/Xray 配置
-- 交互式配置节点信息
+- 交互式配置节点信息（非交互模式跳过）
 - 生成随机密钥和数据库密码
 - 构建并启动所有服务
 
@@ -82,6 +88,14 @@ grep SUB_ADMIN_API_KEY .env
 ```
 
 使用此密钥调用管理员 API 创建用户。
+
+### 6. 默认管理员账号
+
+首次启动会自动创建一个 `admin` 账号（可通过 `SUB_INIT_ADMIN=false` 关闭），默认密码会写入后端日志：
+
+```bash
+docker compose -f deploy/compose/docker-compose.yml --env-file .env logs --tail=200 backend | grep "Default admin password"
+```
 
 ## 架构说明
 

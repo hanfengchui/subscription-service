@@ -13,6 +13,7 @@ NC='\033[0m' # No Color
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 ENV_FILE="$ROOT_DIR/.env"
 COMPOSE_FILE="$ROOT_DIR/deploy/compose/docker-compose.yml"
+NON_INTERACTIVE="${NON_INTERACTIVE:-false}"
 
 # 常见 Hysteria2 配置文件路径
 HY2_CONFIG_PATHS=(
@@ -42,6 +43,17 @@ prompt() { echo -e "${CYAN}[?]${NC} $1"; }
 # 检查命令是否存在
 command_exists() {
   command -v "$1" >/dev/null 2>&1
+}
+
+# 解析参数
+parse_args() {
+  for arg in "$@"; do
+    case "$arg" in
+      -y|--yes|--non-interactive|--auto)
+        NON_INTERACTIVE="true"
+        ;;
+    esac
+  done
 }
 
 # 生成随机密钥
@@ -190,6 +202,15 @@ check_port() {
     fi
   fi
   return 0
+}
+
+# 查找可用端口
+find_available_port() {
+  local port=$1
+  while ! check_port "$port"; do
+    port=$((port + 1))
+  done
+  echo "$port"
 }
 
 # 等待服务就绪
@@ -432,6 +453,7 @@ apply_node_config() {
 
 # 主安装流程
 main() {
+  parse_args "$@"
   echo ""
   echo -e "${BLUE}========================================${NC}"
   echo -e "${BLUE}   Subscription Service 安装脚本${NC}"
@@ -469,13 +491,18 @@ main() {
   info "检查端口 $APP_PORT..."
   if ! check_port "$APP_PORT"; then
     warn "端口 $APP_PORT 已被占用"
-    echo ""
-    read -rp "请输入新端口 (留空使用 18081): " NEW_PORT
-    APP_PORT=${NEW_PORT:-18081}
+    if [ "$NON_INTERACTIVE" = "true" ]; then
+      APP_PORT=$(find_available_port $((APP_PORT + 1)))
+      info "非交互模式: 使用可用端口 $APP_PORT"
+    else
+      echo ""
+      read -rp "请输入新端口 (留空使用 18081): " NEW_PORT
+      APP_PORT=${NEW_PORT:-18081}
 
-    if ! check_port "$APP_PORT"; then
-      error "端口 $APP_PORT 也被占用，请手动指定可用端口"
-      exit 1
+      if ! check_port "$APP_PORT"; then
+        error "端口 $APP_PORT 也被占用，请手动指定可用端口"
+        exit 1
+      fi
     fi
   fi
   success "端口 $APP_PORT 可用"
@@ -516,8 +543,20 @@ main() {
 
   # 5. 首次安装时配置节点
   if [ "$FIRST_INSTALL" = "true" ]; then
-    configure_nodes
-    apply_node_config
+    if [ "$NON_INTERACTIVE" = "true" ]; then
+      info "非交互模式: 跳过节点配置"
+      SERVER_IP=$(get_public_ip)
+      if [ -z "$SERVER_IP" ]; then
+        SERVER_IP="127.0.0.1"
+        warn "无法检测公网 IP，使用 ${SERVER_IP} 作为访问地址"
+      fi
+      HY2_CONFIGURED="false"
+      VLESS_CONFIGURED="false"
+      apply_node_config
+    else
+      configure_nodes
+      apply_node_config
+    fi
   fi
 
   # 6. 构建并启动服务
