@@ -410,9 +410,22 @@ A: Interactive mode will prompt for a new port, non-interactive mode will auto-f
 
 A: Edit the `SUB_HY2_*` and `SUB_VLESS_*` variables in `.env` file, then restart the service.
 
+**Q: What is the default admin account?**
+
+A: A default admin account is automatically created on first deployment:
+- Username: `admin`
+- Password: Randomly generated, displayed in terminal output after installation
+
+If you missed the password display, you can view it with:
+```bash
+docker compose logs backend | grep "Default admin password"
+```
+
 **Q: What if I forgot the admin password?**
 
-A: Check backend logs for the default password, or delete the user record from database and restart the service to auto-create a new admin.
+A: You can reset it by:
+1. Delete the admin user record from the database
+2. Restart the service, a new admin account will be created automatically with the new password shown in logs
 
 For more questions, see [FAQ](docs/faq.md)
 
