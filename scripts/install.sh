@@ -589,13 +589,23 @@ main() {
     warn "后端服务可能仍在初始化，请稍后检查"
   }
 
-  # 8. 获取服务器 IP（如果之前没获取）
+  # 8. 从日志中提取默认管理员密码
+  ADMIN_PASSWORD=""
+  for i in {1..10}; do
+    ADMIN_PASSWORD=$($COMPOSE_CMD -f "$COMPOSE_FILE" logs backend 2>/dev/null | grep "Default admin password:" | tail -1 | sed 's/.*Default admin password: //')
+    if [ -n "$ADMIN_PASSWORD" ]; then
+      break
+    fi
+    sleep 1
+  done
+
+  # 9. 获取服务器 IP（如果之前没获取）
   if [ -z "${SERVER_IP:-}" ]; then
     SERVER_IP=$(get_public_ip)
     SERVER_IP=${SERVER_IP:-"YOUR_SERVER_IP"}
   fi
 
-  # 9. 打印成功信息
+  # 10. 打印成功信息
   echo ""
   echo -e "${GREEN}========================================${NC}"
   echo -e "${GREEN}   安装完成！${NC}"
@@ -603,6 +613,14 @@ main() {
   echo ""
   echo -e "前端面板: ${BLUE}http://${SERVER_IP}:${APP_PORT}/${NC}"
   echo -e "API 地址: ${BLUE}http://${SERVER_IP}:${APP_PORT}/sub/${NC}"
+  echo ""
+  echo -e "${CYAN}默认管理员账号:${NC}"
+  echo -e "  用户名: ${YELLOW}admin${NC}"
+  if [ -n "$ADMIN_PASSWORD" ]; then
+    echo -e "  密码:   ${YELLOW}${ADMIN_PASSWORD}${NC}"
+  else
+    echo -e "  密码:   ${YELLOW}(请查看日志: $COMPOSE_CMD -f $COMPOSE_FILE logs backend | grep 'Default admin password')${NC}"
+  fi
   echo ""
   echo -e "管理员 API Key:"
   echo -e "  ${YELLOW}$(grep SUB_ADMIN_API_KEY "$ENV_FILE" | cut -d= -f2)${NC}"
