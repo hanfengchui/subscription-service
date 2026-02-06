@@ -134,6 +134,21 @@ detect_hysteria2() {
   local stats_listen=$(grep -A5 "trafficStats:" "$config_file" 2>/dev/null | yaml_get /dev/stdin "listen")
   [ -n "$stats_listen" ] && HY2_STATS_URL_DETECTED="http://$stats_listen"
 
+  # 尝试提取 HTTP 认证 URL
+  local auth_url
+  auth_url=$(grep -E "^\s*url:\s*https?://.*/auth" "$config_file" 2>/dev/null | head -1 | sed -E 's/^\s*url:\s*//')
+  if [ -n "$auth_url" ]; then
+    HY2_AUTH_URL_DETECTED="$auth_url"
+    local auth_port
+    auth_port=$(echo "$auth_url" | sed -nE 's#^https?://[^/:]+:([0-9]+)(/.*)?$#\1#p')
+    [ -n "$auth_port" ] && HY2_AUTH_PORT_DETECTED="$auth_port"
+  fi
+
+  # 尝试提取 HTTP 认证请求头 Authorization
+  local auth_header
+  auth_header=$(grep -E "^\s*Authorization:\s*" "$config_file" 2>/dev/null | head -1 | sed -E 's/^\s*Authorization:\s*//')
+  [ -n "$auth_header" ] && HY2_AUTH_SECRET_DETECTED="$auth_header"
+
   return 0
 }
 
@@ -247,6 +262,8 @@ configure_nodes() {
   HY2_SNI="${HY2_SNI:-}"
   HY2_STATS_SECRET_DETECTED="${HY2_STATS_SECRET_DETECTED:-}"
   HY2_STATS_URL_DETECTED="${HY2_STATS_URL_DETECTED:-}"
+  HY2_AUTH_PORT_DETECTED="${HY2_AUTH_PORT_DETECTED:-9998}"
+  HY2_AUTH_SECRET_DETECTED="${HY2_AUTH_SECRET_DETECTED:-}"
   VLESS_UUID="${VLESS_UUID:-}"
 
   # 获取公网 IP
@@ -313,13 +330,15 @@ configure_nodes() {
     else
       HY2_PASSWORD="%TOKEN%"
       ENABLE_HY2_AUTH="true"
+      HY2_AUTH_PORT="${HY2_AUTH_PORT_DETECTED:-9998}"
+      [ -n "${HY2_AUTH_SECRET_DETECTED:-}" ] && HY2_AUTH_SECRET="$HY2_AUTH_SECRET_DETECTED"
       echo ""
-      info "将启用 Hysteria2 认证服务（端口 9998）"
+      info "将启用 Hysteria2 认证服务（端口 ${HY2_AUTH_PORT}）"
       echo -e "${YELLOW}请在 Hysteria2 服务端配置中添加:${NC}"
       echo "  auth:"
       echo "    type: http"
       echo "    http:"
-      echo "      url: http://127.0.0.1:9998/auth"
+      echo "      url: http://127.0.0.1:${HY2_AUTH_PORT}/auth"
     fi
 
     # 流量同步
@@ -423,6 +442,8 @@ apply_node_config() {
 
     if [ "${ENABLE_HY2_AUTH:-false}" = "true" ]; then
       sed -i "s|^HY2_AUTH_ENABLED=.*|HY2_AUTH_ENABLED=true|" "$ENV_FILE"
+      [ -n "${HY2_AUTH_PORT:-}" ] && sed -i "s|^HY2_AUTH_PORT=.*|HY2_AUTH_PORT=${HY2_AUTH_PORT}|" "$ENV_FILE"
+      [ -n "${HY2_AUTH_SECRET:-}" ] && sed -i "s|^HY2_AUTH_SECRET=.*|HY2_AUTH_SECRET=${HY2_AUTH_SECRET}|" "$ENV_FILE"
     fi
 
     if [ "${TRAFFIC_SYNC_ENABLED:-false}" = "true" ]; then
@@ -448,6 +469,38 @@ apply_node_config() {
   # 设置公开 URL
   if [ -n "${SERVER_IP:-}" ]; then
     sed -i "s|^SUB_PUBLIC_BASE_URL=.*|SUB_PUBLIC_BASE_URL=http://${SERVER_IP}:${APP_PORT}|" "$ENV_FILE"
+  fi
+}
+
+# 非交互模式自动同步 Hysteria2 认证配置
+auto_sync_hy2_runtime_config() {
+  info "非交互模式: 检测现有 Hysteria2 配置..."
+
+  if ! detect_hysteria2; then
+    warn "未检测到 Hysteria2 配置，保持默认 HY2 认证/流量同步设置"
+    return
+  fi
+
+  success "检测到 Hysteria2 配置，将自动同步认证参数"
+
+  if [ -n "${HY2_AUTH_PORT_DETECTED:-}" ]; then
+    sed -i "s|^HY2_AUTH_PORT=.*|HY2_AUTH_PORT=${HY2_AUTH_PORT_DETECTED}|" "$ENV_FILE"
+    sed -i "s|^HY2_AUTH_ENABLED=.*|HY2_AUTH_ENABLED=true|" "$ENV_FILE"
+    HY2_AUTH_PORT="$HY2_AUTH_PORT_DETECTED"
+    ENABLE_HY2_AUTH="true"
+    info "已启用 HY2 认证服务（端口 ${HY2_AUTH_PORT_DETECTED}）"
+  fi
+
+  if [ -n "${HY2_AUTH_SECRET_DETECTED:-}" ]; then
+    sed -i "s|^HY2_AUTH_SECRET=.*|HY2_AUTH_SECRET=${HY2_AUTH_SECRET_DETECTED}|" "$ENV_FILE"
+  fi
+
+  if [ -n "${HY2_STATS_URL_DETECTED:-}" ] && [ -n "${HY2_STATS_SECRET_DETECTED:-}" ]; then
+    sed -i "s|^TRAFFIC_SYNC_ENABLED=.*|TRAFFIC_SYNC_ENABLED=true|" "$ENV_FILE"
+    sed -i "s|^HY2_STATS_URL=.*|HY2_STATS_URL=${HY2_STATS_URL_DETECTED}|" "$ENV_FILE"
+    sed -i "s|^HY2_STATS_SECRET=.*|HY2_STATS_SECRET=${HY2_STATS_SECRET_DETECTED}|" "$ENV_FILE"
+    TRAFFIC_SYNC_ENABLED="true"
+    info "已启用 HY2 流量同步（${HY2_STATS_URL_DETECTED}）"
   fi
 }
 
@@ -552,6 +605,7 @@ main() {
       fi
       HY2_CONFIGURED="false"
       VLESS_CONFIGURED="false"
+      auto_sync_hy2_runtime_config
       apply_node_config
     else
       configure_nodes
@@ -631,7 +685,7 @@ main() {
   if [ "${HY2_CONFIGURED:-false}" = "true" ]; then
     echo -e "  Hysteria2: ${GREEN}已配置${NC} (${HY2_SERVER}:${HY2_PORT})"
     if [ "${ENABLE_HY2_AUTH:-false}" = "true" ]; then
-      echo -e "    认证服务: ${GREEN}已启用${NC} (端口 9998)"
+      echo -e "    认证服务: ${GREEN}已启用${NC} (端口 ${HY2_AUTH_PORT:-9998})"
     fi
     if [ "${TRAFFIC_SYNC_ENABLED:-false}" = "true" ]; then
       echo -e "    流量同步: ${GREEN}已启用${NC}"
@@ -664,7 +718,7 @@ main() {
     echo -e "  auth:"
     echo -e "    type: http"
     echo -e "    http:"
-    echo -e "      url: http://127.0.0.1:9998/auth"
+    echo -e "      url: http://127.0.0.1:${HY2_AUTH_PORT:-9998}/auth"
     echo ""
   fi
 }
