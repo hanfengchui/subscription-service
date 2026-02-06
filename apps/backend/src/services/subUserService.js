@@ -8,6 +8,7 @@ const crypto = require('crypto')
 const bcrypt = require('bcryptjs')
 const redis = require('../models/redis')
 const subscriptionMysql = require('../models/subscriptionMysql')
+const subscriptionService = require('./subscriptionService')
 const logger = require('../utils/logger')
 
 // Redis Key 前缀（仅用于会话）
@@ -532,28 +533,85 @@ class SubUserService {
   }
 
   /**
+   * 确保用户有可用的订阅 Token
+   */
+  async ensureUserSubscriptionToken(user, createdBy = 'system') {
+    await this.ensureMySQL()
+
+    if (!user || !user.id) {
+      return { success: false, error: '用户不存在' }
+    }
+
+    if (user.subscriptionToken) {
+      return { success: true, token: user.subscriptionToken, created: false }
+    }
+
+    try {
+      const tokenData = await subscriptionService.createSubscriptionToken({
+        name: `${user.username}默认订阅`,
+        expiryDays: 3650,
+        oneTimeUse: false,
+        userId: user.id,
+        createdBy
+      })
+
+      await this.updateUser(user.id, {
+        subscriptionToken: tokenData.token
+      })
+
+      logger.info(`🔗 Bound default subscription token for user: ${user.username}`)
+
+      return { success: true, token: tokenData.token, created: true }
+    } catch (error) {
+      logger.error('❌ Failed to ensure user subscription token:', error)
+      return { success: false, error: '创建默认订阅链接失败' }
+    }
+  }
+
+  /**
    * 初始化默认管理员账号
    */
   async initDefaultAdmin() {
     await this.ensureMySQL()
 
-    const adminExists = await this.getUserByUsername('admin')
-    if (!adminExists) {
+    let adminUser = await this.getUserByUsername('admin')
+    let defaultPassword = null
+
+    if (!adminUser) {
       // 生成随机密码
-      const defaultPassword = crypto.randomBytes(8).toString('hex')
-      await this.createUser('admin', defaultPassword, {
+      defaultPassword = crypto.randomBytes(8).toString('hex')
+      const createResult = await this.createUser('admin', defaultPassword, {
         name: '管理员',
         role: 'admin',
         isActive: true
       })
+
+      if (!createResult.success) {
+        return { created: false, error: createResult.error }
+      }
+
+      adminUser = createResult.user
+
+      const tokenResult = await this.ensureUserSubscriptionToken(adminUser, 'system')
+      if (!tokenResult.success) {
+        return { created: true, password: defaultPassword, warning: tokenResult.error }
+      }
+
       logger.info(`📋 Created default subscription admin account`)
       logger.info(`📋 Default admin password: ${defaultPassword}`)
       return { created: true, password: defaultPassword }
-    } else if (adminExists.role !== 'admin') {
+    } else if (adminUser.role !== 'admin') {
       // 如果 admin 用户存在但不是管理员角色，升级为管理员
-      await this.setUserRole(adminExists.id, 'admin')
+      await this.setUserRole(adminUser.id, 'admin')
+      adminUser.role = 'admin'
       logger.info(`📋 Upgraded admin user to admin role`)
     }
+
+    const tokenResult = await this.ensureUserSubscriptionToken(adminUser, 'system')
+    if (!tokenResult.success) {
+      return { created: false, warning: tokenResult.error }
+    }
+
     return { created: false }
   }
 }
