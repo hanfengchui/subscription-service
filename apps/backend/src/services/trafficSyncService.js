@@ -5,6 +5,7 @@
 
 const subscriptionMysql = require('../models/subscriptionMysql')
 const logger = require('../utils/logger')
+const { fetchHy2Traffic } = require('../utils/hy2StatsClient')
 
 // 配置
 const CONFIG = {
@@ -90,27 +91,23 @@ class TrafficSyncService {
    */
   async getHysteria2Stats() {
     try {
-      // clear=true 会在获取后清除统计，这样下次获取的是增量
-      const clearParam = CONFIG.clearStats ? 'true' : 'false'
-      const response = await fetch(`${CONFIG.hysteria2.apiUrl}/traffic?clear=${clearParam}`, {
-        headers: {
-          Authorization: CONFIG.hysteria2.secret
-        },
-        timeout: 5000
+      const result = await fetchHy2Traffic({
+        apiUrl: CONFIG.hysteria2.apiUrl,
+        secret: CONFIG.hysteria2.secret,
+        clear: CONFIG.clearStats,
+        timeoutMs: 5000
       })
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
+      if (!result.success) {
+        throw new Error(result.error)
       }
-
-      const data = await response.json()
 
       // Hysteria2 返回格式: { "userId": { "tx": 上传字节, "rx": 下载字节 } }
       // tx = 客户端上传 = 服务器接收
       // rx = 客户端下载 = 服务器发送
       return {
         success: true,
-        users: data
+        users: result.data
       }
     } catch (error) {
       return {

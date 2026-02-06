@@ -7,6 +7,7 @@ const { promisify } = require('util')
 const execAsync = promisify(exec)
 const redis = require('../models/redis')
 const logger = require('../utils/logger')
+const { fetchHy2Traffic } = require('../utils/hy2StatsClient')
 
 // 配置
 const CONFIG = {
@@ -35,23 +36,24 @@ class TrafficStatsService {
    */
   async getHysteria2Stats() {
     try {
-      const response = await fetch(`${CONFIG.hysteria2.apiUrl}/traffic?clear=false`, {
-        headers: {
-          'Authorization': CONFIG.hysteria2.secret
-        }
+      const result = await fetchHy2Traffic({
+        apiUrl: CONFIG.hysteria2.apiUrl,
+        secret: CONFIG.hysteria2.secret,
+        clear: false,
+        timeoutMs: 5000
       })
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
+      if (!result.success) {
+        throw new Error(result.error)
       }
 
-      const data = await response.json()
+      const data = result.data
 
       // Hysteria2 返回格式: { "user": { "tx": 123, "rx": 456 } }
       let totalUpload = 0
       let totalDownload = 0
 
-      for (const [user, stats] of Object.entries(data)) {
+      for (const [, stats] of Object.entries(data)) {
         totalUpload += stats.tx || 0
         totalDownload += stats.rx || 0
       }

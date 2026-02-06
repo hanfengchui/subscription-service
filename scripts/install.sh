@@ -113,6 +113,7 @@ detect_hysteria2() {
   fi
 
   info "检测到 Hysteria2 配置: $config_file"
+  HY2_CONFIG_FILE_DETECTED="$config_file"
 
   # 提取配置
   # 尝试提取 listen 端口
@@ -132,7 +133,14 @@ detect_hysteria2() {
 
   # 尝试提取 trafficStats listen
   local stats_listen=$(grep -A5 "trafficStats:" "$config_file" 2>/dev/null | yaml_get /dev/stdin "listen")
-  [ -n "$stats_listen" ] && HY2_STATS_URL_DETECTED="http://$stats_listen"
+  if [ -n "$stats_listen" ]; then
+    HY2_STATS_LISTEN_DETECTED="$stats_listen"
+    if [[ "$stats_listen" =~ ^:([0-9]+)$ ]]; then
+      HY2_STATS_URL_DETECTED="http://127.0.0.1:${BASH_REMATCH[1]}"
+    else
+      HY2_STATS_URL_DETECTED="http://$stats_listen"
+    fi
+  fi
 
   # 尝试提取 HTTP 认证 URL
   local auth_url
@@ -150,6 +158,86 @@ detect_hysteria2() {
   [ -n "$auth_header" ] && HY2_AUTH_SECRET_DETECTED="$auth_header"
 
   return 0
+}
+
+# 解析地址端口（支持 :9999 / 127.0.0.1:9999）
+extract_host_and_port() {
+  local value="$1"
+  local default_host="${2:-127.0.0.1}"
+
+  if [[ "$value" =~ ^:([0-9]+)$ ]]; then
+    echo "${default_host}:${BASH_REMATCH[1]}"
+    return 0
+  fi
+
+  if [[ "$value" =~ ^([^:]+):([0-9]+)$ ]]; then
+    echo "${BASH_REMATCH[1]}:${BASH_REMATCH[2]}"
+    return 0
+  fi
+
+  return 1
+}
+
+# 容器场景下修正 Hysteria2 流量统计地址可达性
+normalize_hy2_stats_for_container() {
+  local normalized
+  normalized=$(extract_host_and_port "${HY2_STATS_LISTEN_DETECTED:-}" "127.0.0.1" || true)
+
+  if [ -z "$normalized" ]; then
+    return
+  fi
+
+  local stats_host="${normalized%:*}"
+  local stats_port="${normalized##*:}"
+
+  if [ "$stats_host" = "127.0.0.1" ] || [ "$stats_host" = "localhost" ]; then
+    HY2_STATS_URL_DETECTED="http://host.docker.internal:${stats_port}"
+
+    if [ -n "${HY2_CONFIG_FILE_DETECTED:-}" ] && [ -w "${HY2_CONFIG_FILE_DETECTED}" ]; then
+      sed -i "s|listen: ${stats_host}:${stats_port}|listen: 0.0.0.0:${stats_port}|" "${HY2_CONFIG_FILE_DETECTED}" || true
+
+      if grep -Eq "^[[:space:]]*listen:[[:space:]]*0\.0\.0\.0:${stats_port}[[:space:]]*$" "${HY2_CONFIG_FILE_DETECTED}"; then
+        RESTART_HY2_REQUIRED="true"
+        HY2_STATS_LISTEN_DETECTED="0.0.0.0:${stats_port}"
+        success "已自动调整 Hysteria2 trafficStats.listen 为 0.0.0.0:${stats_port}（容器可访问）"
+      else
+        warn "未能自动修改 Hysteria2 trafficStats.listen，请手动改为 0.0.0.0:${stats_port}"
+      fi
+    else
+      warn "Hysteria2 trafficStats.listen 为 ${stats_host}:${stats_port}，容器可能无法访问"
+    fi
+
+    return
+  fi
+
+  if [ "$stats_host" = "0.0.0.0" ]; then
+    HY2_STATS_URL_DETECTED="http://host.docker.internal:${stats_port}"
+  else
+    HY2_STATS_URL_DETECTED="http://${stats_host}:${stats_port}"
+  fi
+}
+
+# 需要时重启 Hysteria2 服务
+restart_hysteria_service_if_needed() {
+  if [ "${RESTART_HY2_REQUIRED:-false}" != "true" ]; then
+    return
+  fi
+
+  if ! command_exists systemctl; then
+    warn "检测到 Hysteria2 配置已更新，请手动重启服务后再使用流量同步"
+    return
+  fi
+
+  for svc in hysteria-server hysteria; do
+    if systemctl list-unit-files --no-pager "${svc}.service" >/dev/null 2>&1; then
+      if systemctl restart "${svc}.service" >/dev/null 2>&1; then
+        success "已重启 ${svc}.service 使 trafficStats 配置生效"
+        return
+      fi
+    fi
+  done
+
+  warn "检测到 Hysteria2 配置已更新，请手动重启服务后再使用流量同步"
 }
 
 # 检测 Xray/VLESS 配置
@@ -316,6 +404,9 @@ configure_nodes() {
     read -rp "Hysteria2 SNI [${default_sni}]: " INPUT_HY2_SNI
     HY2_SNI=${INPUT_HY2_SNI:-$default_sni}
 
+    # 修正容器场景下的 Hysteria2 统计地址可达性
+    normalize_hy2_stats_for_container
+
     # 密码/认证方式
     echo ""
     echo "Hysteria2 认证方式:"
@@ -343,9 +434,15 @@ configure_nodes() {
 
     # 流量同步
     echo ""
-    prompt "是否启用 Hysteria2 流量同步? (y/N): "
+    local sync_prompt="y/N"
+    local default_sync="N"
+    if [ -n "${HY2_STATS_URL_DETECTED:-}" ] && [ -n "${HY2_STATS_SECRET_DETECTED:-}" ]; then
+      sync_prompt="Y/n"
+      default_sync="Y"
+    fi
+    prompt "是否启用 Hysteria2 流量同步? (${sync_prompt}): "
     read -r ENABLE_TRAFFIC_SYNC
-    ENABLE_TRAFFIC_SYNC=${ENABLE_TRAFFIC_SYNC:-N}
+    ENABLE_TRAFFIC_SYNC=${ENABLE_TRAFFIC_SYNC:-$default_sync}
 
     if [[ "$ENABLE_TRAFFIC_SYNC" =~ ^[Yy]$ ]]; then
       TRAFFIC_SYNC_ENABLED="true"
@@ -483,6 +580,8 @@ auto_sync_hy2_runtime_config() {
 
   success "检测到 Hysteria2 配置，将自动同步认证参数"
 
+  normalize_hy2_stats_for_container
+
   if [ -n "${HY2_AUTH_PORT_DETECTED:-}" ]; then
     sed -i "s|^HY2_AUTH_PORT=.*|HY2_AUTH_PORT=${HY2_AUTH_PORT_DETECTED}|" "$ENV_FILE"
     sed -i "s|^HY2_AUTH_ENABLED=.*|HY2_AUTH_ENABLED=true|" "$ENV_FILE"
@@ -612,6 +711,8 @@ main() {
       apply_node_config
     fi
   fi
+
+  restart_hysteria_service_if_needed
 
   # 6. 构建并启动服务
   echo ""
