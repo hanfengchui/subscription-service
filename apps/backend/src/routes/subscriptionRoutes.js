@@ -497,10 +497,26 @@ router.get('/auth/sub-users', authenticateSubAdmin, async (req, res) => {
   try {
     const users = await subUserService.getSubUsers(req.subUser.id)
     const stats = await subUserService.getSubUserStats(req.subUser.id)
+
+    // 为每个用户附带 token 状态（oneTimeUse、isConsumed）
+    const usersWithTokenStatus = await Promise.all(users.map(async (user) => {
+      if (user.subscriptionToken) {
+        const tokenData = await subscriptionService.getToken(user.subscriptionToken)
+        if (tokenData) {
+          user.tokenStatus = {
+            oneTimeUse: tokenData.oneTimeUse,
+            isConsumed: tokenData.isConsumed,
+            accessCount: tokenData.accessCount
+          }
+        }
+      }
+      return user
+    }))
+
     res.json({
       success: true,
-      data: users,
-      total: users.length,
+      data: usersWithTokenStatus,
+      total: usersWithTokenStatus.length,
       stats: stats
     })
   } catch (error) {

@@ -631,6 +631,17 @@
                     >
                       {{ user.isActive ? '正常' : '禁用' }}
                     </span>
+                    <span
+                      v-if="user.tokenStatus?.oneTimeUse"
+                      class="ml-1 rounded-full px-2 py-1 text-xs"
+                      :class="
+                        user.tokenStatus.isConsumed
+                          ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                          : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                      "
+                    >
+                      {{ user.tokenStatus.isConsumed ? '已阅' : '未阅' }}
+                    </span>
                   </td>
                   <td class="whitespace-nowrap px-6 py-4">
                     <div class="text-sm text-gray-900 dark:text-white">
