@@ -335,6 +335,15 @@ class SubscriptionMySQLClient {
           [oldToken]
         )
       }
+    } else {
+      // 宽松模式：重置该用户所有旧 token 的 is_consumed 状态
+      // 这样旧的阅后即焚链接可以再次被订阅一次
+      if (oldTokenData.userId) {
+        await this.pool.execute(
+          `UPDATE sub_tokens SET is_consumed = FALSE WHERE user_id = ? AND status = 'active'`,
+          [oldTokenData.userId]
+        )
+      }
     }
 
     // 创建新 token 记录
