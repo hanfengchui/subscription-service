@@ -80,7 +80,7 @@ get_public_ip() {
 yaml_get() {
   local file=$1
   local key=$2
-  grep -E "^\s*${key}:" "$file" 2>/dev/null | head -1 | sed 's/.*:\s*//' | tr -d '"' | tr -d "'"
+  grep -E "^\s*${key}:" "$file" 2>/dev/null | head -1 | sed "s/^[[:space:]]*${key}:[[:space:]]*//" | tr -d '"' | tr -d "'"
 }
 
 # 从 JSON 文件提取值（简单实现）
@@ -190,30 +190,26 @@ normalize_hy2_stats_for_container() {
   local stats_host="${normalized%:*}"
   local stats_port="${normalized##*:}"
 
-  if [ "$stats_host" = "127.0.0.1" ] || [ "$stats_host" = "localhost" ]; then
+  if [ "$stats_host" = "0.0.0.0" ]; then
     HY2_STATS_URL_DETECTED="http://host.docker.internal:${stats_port}"
-
-    if [ -n "${HY2_CONFIG_FILE_DETECTED:-}" ] && [ -w "${HY2_CONFIG_FILE_DETECTED}" ]; then
-      sed -i "s|listen: ${stats_host}:${stats_port}|listen: 0.0.0.0:${stats_port}|" "${HY2_CONFIG_FILE_DETECTED}" || true
-
-      if grep -Eq "^[[:space:]]*listen:[[:space:]]*0\.0\.0\.0:${stats_port}[[:space:]]*$" "${HY2_CONFIG_FILE_DETECTED}"; then
-        RESTART_HY2_REQUIRED="true"
-        HY2_STATS_LISTEN_DETECTED="0.0.0.0:${stats_port}"
-        success "已自动调整 Hysteria2 trafficStats.listen 为 0.0.0.0:${stats_port}（容器可访问）"
-      else
-        warn "未能自动修改 Hysteria2 trafficStats.listen，请手动改为 0.0.0.0:${stats_port}"
-      fi
-    else
-      warn "Hysteria2 trafficStats.listen 为 ${stats_host}:${stats_port}，容器可能无法访问"
-    fi
-
     return
   fi
 
-  if [ "$stats_host" = "0.0.0.0" ]; then
-    HY2_STATS_URL_DETECTED="http://host.docker.internal:${stats_port}"
+  # 非 0.0.0.0 的地址（127.0.0.1、localhost、Docker 内部网关等）都需要修正
+  HY2_STATS_URL_DETECTED="http://host.docker.internal:${stats_port}"
+
+  if [ -n "${HY2_CONFIG_FILE_DETECTED:-}" ] && [ -w "${HY2_CONFIG_FILE_DETECTED}" ]; then
+    sed -i "s|listen: ${stats_host}:${stats_port}|listen: 0.0.0.0:${stats_port}|" "${HY2_CONFIG_FILE_DETECTED}" || true
+
+    if grep -Eq "^[[:space:]]*listen:[[:space:]]*0\.0\.0\.0:${stats_port}[[:space:]]*$" "${HY2_CONFIG_FILE_DETECTED}"; then
+      RESTART_HY2_REQUIRED="true"
+      HY2_STATS_LISTEN_DETECTED="0.0.0.0:${stats_port}"
+      success "已自动调整 Hysteria2 trafficStats.listen 为 0.0.0.0:${stats_port}（容器可访问）"
+    else
+      warn "未能自动修改 Hysteria2 trafficStats.listen，请手动改为 0.0.0.0:${stats_port}"
+    fi
   else
-    HY2_STATS_URL_DETECTED="http://${stats_host}:${stats_port}"
+    warn "Hysteria2 trafficStats.listen 为 ${stats_host}:${stats_port}，容器可能无法访问"
   fi
 }
 
