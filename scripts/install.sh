@@ -127,6 +127,25 @@ detect_hysteria2() {
   local sni=$(yaml_get "$config_file" "sni")
   [ -n "$sni" ] && HY2_SNI="$sni"
 
+  # 若配置中未显式设置 sni，尝试从 TLS 证书推断域名
+  if [ -z "${HY2_SNI:-}" ]; then
+    local cert_path
+    cert_path=$(yaml_get "$config_file" "cert")
+
+    if [ -n "$cert_path" ] && [ -f "$cert_path" ] && command_exists openssl; then
+      local cert_domain
+      cert_domain=$(openssl x509 -in "$cert_path" -noout -ext subjectAltName 2>/dev/null \
+        | grep -oE 'DNS:[^, ]+' | head -1 | sed 's/^DNS://')
+
+      if [ -z "$cert_domain" ]; then
+        cert_domain=$(openssl x509 -in "$cert_path" -noout -subject 2>/dev/null \
+          | sed -nE 's/.*CN[[:space:]]*=[[:space:]]*([^,/]+).*/\1/p' | head -1)
+      fi
+
+      [ -n "$cert_domain" ] && HY2_SNI="$cert_domain"
+    fi
+  fi
+
   # 尝试提取 trafficStats secret
   local stats_secret=$(grep -A5 "trafficStats:" "$config_file" 2>/dev/null | yaml_get /dev/stdin "secret")
   [ -n "$stats_secret" ] && HY2_STATS_SECRET_DETECTED="$stats_secret"
@@ -211,6 +230,24 @@ normalize_hy2_stats_for_container() {
   else
     warn "Hysteria2 trafficStats.listen 为 ${stats_host}:${stats_port}，容器可能无法访问"
   fi
+}
+
+# 放行 Docker 容器网段到指定端口的防火墙规则
+allow_docker_to_port() {
+  local port=$1
+  if ! command_exists ufw; then
+    return
+  fi
+  if ! ufw status 2>/dev/null | grep -q "Status: active"; then
+    return
+  fi
+  # 检查是否已有规则
+  if ufw status | grep -qE "${port}.*ALLOW.*172\\."; then
+    return
+  fi
+  # 放行所有 Docker 默认网段（172.16.0.0/12）到该端口
+  ufw allow from 172.16.0.0/12 to any port "$port" proto tcp >/dev/null 2>&1 && \
+    success "已添加防火墙规则: 允许 Docker 容器访问端口 ${port}"
 }
 
 # 需要时重启 Hysteria2 服务
@@ -453,6 +490,11 @@ configure_nodes() {
       else
         read -rp "Hysteria2 流量统计密钥: " HY2_STATS_SECRET
       fi
+
+      # 放行 Docker 容器到 stats 端口的防火墙
+      local stats_port_num
+      stats_port_num=$(echo "${HY2_STATS_URL}" | grep -oE '[0-9]+$')
+      [ -n "$stats_port_num" ] && allow_docker_to_port "$stats_port_num"
     else
       TRAFFIC_SYNC_ENABLED="false"
     fi
@@ -596,6 +638,70 @@ auto_sync_hy2_runtime_config() {
     sed -i "s|^HY2_STATS_SECRET=.*|HY2_STATS_SECRET=${HY2_STATS_SECRET_DETECTED}|" "$ENV_FILE"
     TRAFFIC_SYNC_ENABLED="true"
     info "已启用 HY2 流量同步（${HY2_STATS_URL_DETECTED}）"
+
+    # 放行 Docker 容器到 stats 端口的防火墙
+    local stats_port_num
+    stats_port_num=$(echo "${HY2_STATS_URL_DETECTED}" | grep -oE '[0-9]+$')
+    [ -n "$stats_port_num" ] && allow_docker_to_port "$stats_port_num"
+  fi
+}
+
+# 非交互模式下自动替换示例节点占位符，避免订阅链接出现 example.com
+auto_fill_placeholder_nodes_non_interactive() {
+  if [ ! -f "$ENV_FILE" ]; then
+    return
+  fi
+
+  local changed="false"
+  local fallback_server="${SERVER_IP:-127.0.0.1}"
+  local current_hy2_server current_hy2_sni current_hy2_port
+  local current_vless_server current_vless_sni current_vless_uuid
+
+  current_hy2_server=$(grep -E '^SUB_HY2_SERVER=' "$ENV_FILE" | head -n1 | cut -d= -f2-)
+  current_hy2_sni=$(grep -E '^SUB_HY2_SNI=' "$ENV_FILE" | head -n1 | cut -d= -f2-)
+  current_hy2_port=$(grep -E '^SUB_HY2_PORT=' "$ENV_FILE" | head -n1 | cut -d= -f2-)
+
+  current_vless_server=$(grep -E '^SUB_VLESS_SERVER=' "$ENV_FILE" | head -n1 | cut -d= -f2-)
+  current_vless_sni=$(grep -E '^SUB_VLESS_SNI=' "$ENV_FILE" | head -n1 | cut -d= -f2-)
+  current_vless_uuid=$(grep -E '^SUB_VLESS_UUID=' "$ENV_FILE" | head -n1 | cut -d= -f2-)
+
+  # 尝试探测 Xray UUID（如果存在）
+  detect_xray || true
+
+  if [ -z "$current_hy2_server" ] || [ "$current_hy2_server" = "example.com" ]; then
+    sed -i "s|^SUB_HY2_SERVER=.*|SUB_HY2_SERVER=${fallback_server}|" "$ENV_FILE"
+    changed="true"
+  fi
+
+  if [ -z "$current_hy2_sni" ] || [ "$current_hy2_sni" = "example.com" ]; then
+    local hy2_sni_target="${HY2_SNI:-$fallback_server}"
+    sed -i "s|^SUB_HY2_SNI=.*|SUB_HY2_SNI=${hy2_sni_target}|" "$ENV_FILE"
+    changed="true"
+  fi
+
+  if [ -n "${HY2_PORT:-}" ] && { [ -z "$current_hy2_port" ] || [ "$current_hy2_port" = "443" ]; }; then
+    sed -i "s|^SUB_HY2_PORT=.*|SUB_HY2_PORT=${HY2_PORT}|" "$ENV_FILE"
+    changed="true"
+  fi
+
+  if [ -z "$current_vless_server" ] || [ "$current_vless_server" = "example.com" ]; then
+    sed -i "s|^SUB_VLESS_SERVER=.*|SUB_VLESS_SERVER=${fallback_server}|" "$ENV_FILE"
+    changed="true"
+  fi
+
+  if [ -z "$current_vless_sni" ] || [ "$current_vless_sni" = "example.com" ]; then
+    local vless_sni_target="${HY2_SNI:-$fallback_server}"
+    sed -i "s|^SUB_VLESS_SNI=.*|SUB_VLESS_SNI=${vless_sni_target}|" "$ENV_FILE"
+    changed="true"
+  fi
+
+  if [ -n "${VLESS_UUID:-}" ] && { [ -z "$current_vless_uuid" ] || [ "$current_vless_uuid" = "00000000-0000-0000-0000-000000000000" ]; }; then
+    sed -i "s|^SUB_VLESS_UUID=.*|SUB_VLESS_UUID=${VLESS_UUID}|" "$ENV_FILE"
+    changed="true"
+  fi
+
+  if [ "$changed" = "true" ]; then
+    info "非交互模式: 已自动替换示例节点占位值，避免订阅出现 example.com"
   fi
 }
 
@@ -702,6 +808,7 @@ main() {
       VLESS_CONFIGURED="false"
       auto_sync_hy2_runtime_config
       apply_node_config
+      auto_fill_placeholder_nodes_non_interactive
     else
       configure_nodes
       apply_node_config
