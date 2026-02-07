@@ -21,7 +21,8 @@ api.interceptors.response.use(
       localStorage.removeItem('sub_token')
       localStorage.removeItem('sub_user')
       // 跳转到登录页
-      window.location.href = '/sub-login'
+      const base = import.meta.env.BASE_URL || '/'
+      window.location.href = base + 'sub-login'
     }
     return Promise.reject(error)
   }

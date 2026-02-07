@@ -1,12 +1,15 @@
 FROM node:18-alpine AS frontend-build
 
+ARG VITE_APP_BASE_URL=/
+ARG VITE_API_BASE_URL=
+
 WORKDIR /app
 
 COPY apps/frontend/package.json ./
 RUN npm install
 
 COPY apps/frontend ./
-RUN npm run build
+RUN VITE_APP_BASE_URL=${VITE_APP_BASE_URL} VITE_API_BASE_URL=${VITE_API_BASE_URL} npm run build
 
 FROM nginx:alpine
 
