@@ -243,7 +243,8 @@ class SubUserService {
           username: user.username,
           name: user.name,
           role: user.role,
-          subscriptionToken: user.subscriptionToken
+          subscriptionToken: user.subscriptionToken,
+          tokenMode: user.tokenMode
         }
       }
     } catch (e) {
@@ -315,7 +316,7 @@ class SubUserService {
       return { success: false, error: '用户不存在' }
     }
 
-    const allowedFields = ['name', 'role', 'subscriptionToken', 'expiresAt', 'isActive', 'trafficLimit']
+    const allowedFields = ['name', 'role', 'subscriptionToken', 'expiresAt', 'isActive', 'trafficLimit', 'tokenMode']
     const updateData = {}
 
     for (const field of allowedFields) {
