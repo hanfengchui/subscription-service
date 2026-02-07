@@ -71,10 +71,19 @@ async function start() {
 
     const initAdminEnabled = process.env.SUB_INIT_ADMIN !== 'false'
     if (initAdminEnabled) {
-      try {
-        await subUserService.initDefaultAdmin()
-      } catch (error) {
-        logger.error('❌ Failed to init default admin:', error)
+      const maxRetries = 5
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          await subUserService.initDefaultAdmin()
+          break
+        } catch (error) {
+          if (attempt < maxRetries) {
+            logger.warn(`⏳ Init default admin failed (attempt ${attempt}/${maxRetries}), retrying in ${attempt * 3}s...`)
+            await new Promise(r => setTimeout(r, attempt * 3000))
+          } else {
+            logger.error('❌ Failed to init default admin after all retries:', error)
+          }
+        }
       }
     }
 
