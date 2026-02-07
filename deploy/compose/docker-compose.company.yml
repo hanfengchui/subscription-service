@@ -1,5 +1,10 @@
 services:
+  backend:
+    env_file:
+      - ../../.env.company
   nginx:
+    env_file:
+      - ../../.env.company
     build:
       args:
         VITE_APP_BASE_URL: /subscription/

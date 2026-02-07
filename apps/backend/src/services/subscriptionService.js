@@ -242,8 +242,18 @@ class SubscriptionService {
       }
     }
 
-    // 添加实际节点（传递 token 用于生成用户独立密码）
-    links.push(...nodes.map(node => this._generateNodeLink(node, token)))
+    // 获取用户当前的 subscription_token 作为 hy2 密码
+    // 这样即使通过旧订阅链接更新，hy2 密码也始终是最新的 active token
+    let hy2Password = token
+    if (data.userId) {
+      const user = await subscriptionMysql.getUserById(data.userId)
+      if (user && user.subscriptionToken) {
+        hy2Password = user.subscriptionToken
+      }
+    }
+
+    // 添加实际节点（传递用户当前 token 用于生成用户独立密码）
+    links.push(...nodes.map(node => this._generateNodeLink(node, hy2Password)))
 
     // Base64 编码
     const content = Buffer.from(links.join('\n')).toString('base64')
