@@ -37,10 +37,11 @@ class XrayService {
       try {
         await this._addUser(inbound.tag, inbound.port, `token_${tokenId}@sub`, uuid)
       } catch (err) {
-        if (err.message && err.message.includes('already exists')) {
+        const message = err.message || ''
+        if (message.includes('already exists') || message.includes('Added 0') || message.trim() === '') {
           logger.debug(`Xray user token_${tokenId}@sub already exists on ${inbound.tag}`)
         } else {
-          logger.error(`Xray addUser failed for ${inbound.tag}:`, err.message)
+          logger.error(`Xray addUser failed for ${inbound.tag}:`, message)
         }
       }
     }
