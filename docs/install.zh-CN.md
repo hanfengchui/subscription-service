@@ -139,7 +139,11 @@ server {
 
 ```bash
 SUB_PUBLIC_BASE_URL=https://sub.example.com
+CORS_ORIGIN=https://sub.example.com
+APP_BIND_HOST=127.0.0.1
 ```
+
+`APP_BIND_HOST=127.0.0.1` 会让 Docker 里的 Nginx 只监听本机端口，避免用户绕过 HTTPS 反向代理直接访问 `http://服务器IP:APP_PORT`。
 
 ### 使用 Caddy（自动 HTTPS）
 

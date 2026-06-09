@@ -3,11 +3,18 @@
  */
 
 const express = require('express')
+const crypto = require('crypto')
 const router = express.Router()
 const subscriptionService = require('../services/subscriptionService')
 const subUserService = require('../services/subUserService')
+const redis = require('../models/redis')
 const { authenticateAdminApiKey } = require('../middleware/adminApiKey')
 const logger = require('../utils/logger')
+
+const LOGIN_RATE_LIMIT_ENABLED = process.env.SUB_LOGIN_RATE_LIMIT_ENABLED !== 'false'
+const LOGIN_RATE_LIMIT_MAX = parseInt(process.env.SUB_LOGIN_RATE_LIMIT_MAX, 10) || 10
+const LOGIN_RATE_LIMIT_WINDOW = parseInt(process.env.SUB_LOGIN_RATE_LIMIT_WINDOW, 10) || 900
+const LOGIN_RATE_LIMIT_BLOCK = parseInt(process.env.SUB_LOGIN_RATE_LIMIT_BLOCK, 10) || 900
 
 /**
  * 获取客户端真实 IP
@@ -45,6 +52,65 @@ function buildPublicUrl(req, path) {
   const baseUrl = getPublicBaseUrl(req)
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
   return baseUrl ? `${baseUrl}${normalizedPath}` : normalizedPath
+}
+
+function getLoginRateLimitKey(req, username) {
+  const ip = getClientIP(req) || 'unknown'
+  return crypto
+    .createHash('sha256')
+    .update(`${ip}:${String(username || '').toLowerCase()}`)
+    .digest('hex')
+}
+
+async function checkLoginRateLimit(req, username) {
+  if (!LOGIN_RATE_LIMIT_ENABLED) {
+    return { allowed: true }
+  }
+
+  try {
+    const client = redis.getClientSafe()
+    const key = getLoginRateLimitKey(req, username)
+    const blockKey = `sub_login_block:${key}`
+    const ttl = await client.ttl(blockKey)
+
+    if (ttl > 0) {
+      return { allowed: false, retryAfter: ttl }
+    }
+  } catch (error) {
+    logger.warn(`Login rate limit check skipped: ${error.message}`)
+  }
+
+  return { allowed: true }
+}
+
+async function recordLoginResult(req, username, success) {
+  if (!LOGIN_RATE_LIMIT_ENABLED) {
+    return
+  }
+
+  try {
+    const client = redis.getClientSafe()
+    const key = getLoginRateLimitKey(req, username)
+    const failKey = `sub_login_fail:${key}`
+    const blockKey = `sub_login_block:${key}`
+
+    if (success) {
+      await client.del(failKey, blockKey)
+      return
+    }
+
+    const attempts = await client.incr(failKey)
+    if (attempts === 1) {
+      await client.expire(failKey, LOGIN_RATE_LIMIT_WINDOW)
+    }
+
+    if (attempts >= LOGIN_RATE_LIMIT_MAX) {
+      await client.set(blockKey, '1', 'EX', LOGIN_RATE_LIMIT_BLOCK)
+      await client.del(failKey)
+    }
+  } catch (error) {
+    logger.warn(`Login rate limit update skipped: ${error.message}`)
+  }
 }
 
 /**
@@ -122,13 +188,23 @@ router.post('/auth/login', async (req, res) => {
       return res.status(400).json({ error: '请输入用户名和密码' })
     }
 
+    const rateLimit = await checkLoginRateLimit(req, username)
+    if (!rateLimit.allowed) {
+      return res.status(429).json({
+        error: '登录失败次数过多，请稍后再试',
+        retryAfter: rateLimit.retryAfter
+      })
+    }
+
     const result = await subUserService.login(username, password)
 
     if (!result.success) {
+      await recordLoginResult(req, username, false)
       logger.warn(`🚫 Subscription login failed: ${username} - ${result.error}`)
       return res.status(401).json({ error: result.error })
     }
 
+    await recordLoginResult(req, username, true)
     logger.info(`✅ Subscription user logged in: ${username}`)
 
     res.json({

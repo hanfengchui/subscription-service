@@ -67,6 +67,17 @@ gen_secret() {
   fi
 }
 
+set_env_var() {
+  local key="$1"
+  local value="$2"
+
+  if grep -qE "^${key}=" "$ENV_FILE" 2>/dev/null; then
+    sed -i "s|^${key}=.*|${key}=${value}|" "$ENV_FILE"
+  else
+    printf '%s=%s\n' "$key" "$value" >> "$ENV_FILE"
+  fi
+}
+
 # 获取公网 IP
 get_public_ip() {
   curl -sf --connect-timeout 5 https://api.ipify.org 2>/dev/null ||
@@ -175,6 +186,7 @@ detect_hysteria2() {
   local auth_header
   auth_header=$(grep -E "^\s*Authorization:\s*" "$config_file" 2>/dev/null | head -1 | sed -E 's/^\s*Authorization:\s*//')
   [ -n "$auth_header" ] && HY2_AUTH_SECRET_DETECTED="$auth_header"
+  [ -n "$auth_header" ] && HY2_AUTH_REQUIRE_SECRET_DETECTED="true"
 
   return 0
 }
@@ -893,6 +905,7 @@ configure_nodes() {
       ENABLE_HY2_AUTH="true"
       HY2_AUTH_PORT="${HY2_AUTH_PORT_DETECTED:-9998}"
       [ -n "${HY2_AUTH_SECRET_DETECTED:-}" ] && HY2_AUTH_SECRET="$HY2_AUTH_SECRET_DETECTED"
+      [ -n "${HY2_AUTH_SECRET_DETECTED:-}" ] && HY2_AUTH_REQUIRE_SECRET="true"
       echo ""
       info "将启用 Hysteria2 认证服务（端口 ${HY2_AUTH_PORT}）"
       echo -e "${YELLOW}请在 Hysteria2 服务端配置中添加:${NC}"
@@ -900,6 +913,8 @@ configure_nodes() {
       echo "    type: http"
       echo "    http:"
       echo "      url: http://127.0.0.1:${HY2_AUTH_PORT}/auth"
+      echo "      headers:"
+      echo "        Authorization: <HY2_AUTH_SECRET>"
     fi
 
     # 流量同步
@@ -1015,7 +1030,8 @@ apply_node_config() {
     if [ "${ENABLE_HY2_AUTH:-false}" = "true" ]; then
       sed -i "s|^HY2_AUTH_ENABLED=.*|HY2_AUTH_ENABLED=true|" "$ENV_FILE"
       [ -n "${HY2_AUTH_PORT:-}" ] && sed -i "s|^HY2_AUTH_PORT=.*|HY2_AUTH_PORT=${HY2_AUTH_PORT}|" "$ENV_FILE"
-      [ -n "${HY2_AUTH_SECRET:-}" ] && sed -i "s|^HY2_AUTH_SECRET=.*|HY2_AUTH_SECRET=${HY2_AUTH_SECRET}|" "$ENV_FILE"
+      [ -n "${HY2_AUTH_SECRET:-}" ] && set_env_var "HY2_AUTH_SECRET" "${HY2_AUTH_SECRET}"
+      [ -n "${HY2_AUTH_REQUIRE_SECRET:-}" ] && set_env_var "HY2_AUTH_REQUIRE_SECRET" "${HY2_AUTH_REQUIRE_SECRET}"
     fi
 
     if [ "${TRAFFIC_SYNC_ENABLED:-false}" = "true" ]; then
@@ -1078,7 +1094,10 @@ auto_sync_hy2_runtime_config() {
   fi
 
   if [ -n "${HY2_AUTH_SECRET_DETECTED:-}" ]; then
-    sed -i "s|^HY2_AUTH_SECRET=.*|HY2_AUTH_SECRET=${HY2_AUTH_SECRET_DETECTED}|" "$ENV_FILE"
+    set_env_var "HY2_AUTH_SECRET" "${HY2_AUTH_SECRET_DETECTED}"
+  fi
+  if [ -n "${HY2_AUTH_REQUIRE_SECRET_DETECTED:-}" ]; then
+    set_env_var "HY2_AUTH_REQUIRE_SECRET" "${HY2_AUTH_REQUIRE_SECRET_DETECTED}"
   fi
 
   if [ -n "${HY2_STATS_URL_DETECTED:-}" ] && [ -n "${HY2_STATS_SECRET_DETECTED:-}" ]; then

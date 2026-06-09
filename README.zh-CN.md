@@ -246,7 +246,9 @@ cp .env.example .env
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
 | `APP_PORT` | 对外服务端口 | 18080 |
+| `APP_BIND_HOST` | 端口绑定地址；外部 HTTPS 反代时建议设为 `127.0.0.1` | 0.0.0.0 |
 | `NODE_ENV` | 运行环境 | production |
+| `CORS_ORIGIN` | 浏览器跨域来源；生产环境建议设置为面板域名 | * |
 | `SUB_ADMIN_API_KEY` | 管理员 API 密钥 | 自动生成 |
 | `SUB_PUBLIC_BASE_URL` | 订阅链接的公开地址 | 自动检测 |
 | `SUB_INIT_ADMIN` | 首次启动是否创建默认管理员 | true |
@@ -288,6 +290,7 @@ cp .env.example .env
 | `HY2_AUTH_ENABLED` | 是否启用认证服务 | true |
 | `HY2_AUTH_PORT` | 认证服务端口 | 9998 |
 | `HY2_AUTH_SECRET` | 认证服务密钥 | - |
+| `HY2_AUTH_REQUIRE_SECRET` | 是否要求 Hysteria2 请求携带认证密钥 | true |
 
 详细配置请参考：[配置文档](docs/config.zh-CN.md)
 

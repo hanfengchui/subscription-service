@@ -4,6 +4,7 @@ const cors = require('cors')
 const config = require('../config/config')
 const logger = require('./utils/logger')
 const redis = require('./models/redis')
+const { createCorsOptions } = require('./utils/corsOrigin')
 
 const subscriptionRoutes = require('./routes/subscriptionRoutes')
 const trafficSyncService = require('./services/trafficSyncService')
@@ -17,10 +18,7 @@ const app = express()
 app.set('trust proxy', config.server.trustProxy)
 
 // Middleware
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
-  credentials: false
-}))
+app.use(cors(createCorsOptions()))
 app.use(express.json({ limit: process.env.REQUEST_BODY_LIMIT || '2mb' }))
 
 // Health check

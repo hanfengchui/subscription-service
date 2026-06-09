@@ -4,6 +4,7 @@
  */
 
 const express = require('express')
+const crypto = require('crypto')
 const subscriptionMysql = require('../models/subscriptionMysql')
 const logger = require('../utils/logger')
 
@@ -11,6 +12,24 @@ const logger = require('../utils/logger')
 const AUTH_PORT = parseInt(process.env.HY2_AUTH_PORT) || 9998
 const AUTH_HOST = process.env.HY2_AUTH_HOST || '0.0.0.0'  // 默认监听所有接口，以便宿主机访问
 const AUTH_SECRET = process.env.HY2_AUTH_SECRET || 'CHANGE_ME'
+const REQUIRE_AUTH_SECRET = process.env.HY2_AUTH_REQUIRE_SECRET === 'true'
+
+function getBearerToken(headerValue) {
+  if (!headerValue) return ''
+  const value = Array.isArray(headerValue) ? headerValue[0] : headerValue
+  return value.replace(/^Bearer\s+/i, '').trim()
+}
+
+function timingSafeEqualString(a, b) {
+  const aBuffer = Buffer.from(String(a || ''))
+  const bBuffer = Buffer.from(String(b || ''))
+
+  if (aBuffer.length !== bBuffer.length) {
+    return false
+  }
+
+  return crypto.timingSafeEqual(aBuffer, bBuffer)
+}
 
 class Hysteria2AuthService {
   constructor() {
@@ -30,6 +49,25 @@ class Hysteria2AuthService {
 
     this.app = express()
     this.app.use(express.json())
+
+    this.app.use((req, res, next) => {
+      if (!REQUIRE_AUTH_SECRET || req.path === '/health') {
+        return next()
+      }
+
+      if (!AUTH_SECRET || AUTH_SECRET === 'CHANGE_ME') {
+        logger.error('Hysteria2 auth: HY2_AUTH_SECRET is required but not configured')
+        return res.status(503).json({ ok: false })
+      }
+
+      const requestSecret = getBearerToken(req.headers.authorization) || req.headers['x-hy2-auth-secret']
+      if (!timingSafeEqualString(requestSecret, AUTH_SECRET)) {
+        logger.warn(`Hysteria2 auth: Unauthorized request from ${req.ip}`)
+        return res.status(401).json({ ok: false })
+      }
+
+      next()
+    })
 
     // 认证端点 - Hysteria2 会调用这个接口验证用户
     this.app.post('/auth', async (req, res) => {

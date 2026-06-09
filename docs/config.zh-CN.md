@@ -9,6 +9,7 @@
 | 变量 | 说明 | 默认值 | 必填 |
 |------|------|--------|------|
 | `APP_PORT` | Nginx 对外暴露的端口 | `18080` | 否 |
+| `APP_BIND_HOST` | Nginx 端口绑定地址。使用外部 HTTPS 反向代理时建议设为 `127.0.0.1` | `0.0.0.0` | 否 |
 
 ### 后端服务
 
@@ -18,7 +19,11 @@
 | `PORT` | 后端容器内部监听端口 | `3000` | 否 |
 | `HOST` | 后端监听地址 | `0.0.0.0` | 否 |
 | `TRUST_PROXY` | 是否信任代理头（用于获取真实 IP） | `true` | 否 |
-| `CORS_ORIGIN` | CORS 允许的来源，`*` 表示允许所有 | `*` | 否 |
+| `CORS_ORIGIN` | CORS 允许的来源，`*` 表示允许所有；生产环境建议设置为面板域名，多个来源用英文逗号分隔 | `*` | 否 |
+| `SUB_LOGIN_RATE_LIMIT_ENABLED` | 是否启用登录失败限速 | `true` | 否 |
+| `SUB_LOGIN_RATE_LIMIT_MAX` | 同一 IP + 用户名在窗口期内允许的失败次数 | `10` | 否 |
+| `SUB_LOGIN_RATE_LIMIT_WINDOW` | 登录失败计数窗口（秒） | `900` | 否 |
+| `SUB_LOGIN_RATE_LIMIT_BLOCK` | 触发限速后的阻止时间（秒） | `900` | 否 |
 
 ### 订阅链接
 
@@ -142,6 +147,7 @@ trafficStats:
 |------|------|--------|------|
 | `HY2_AUTH_PORT` | 认证服务监听端口 | `9998` | 否 |
 | `HY2_AUTH_SECRET` | 认证请求验证密钥（可选） | 自动生成 | 否 |
+| `HY2_AUTH_REQUIRE_SECRET` | 是否要求 Hysteria2 请求携带 `Authorization` 或 `X-Hy2-Auth-Secret` | `true` | 否 |
 | `HY2_AUTH_ENABLED` | 是否启用认证服务 | `false` | 否 |
 
 **Hysteria2 服务端配置示例：**
@@ -152,6 +158,8 @@ auth:
   http:
     url: http://127.0.0.1:9998/auth
     insecure: false
+    headers:
+      Authorization: your-auth-secret
 ```
 
 ### Xray 动态 UUID 管理
@@ -203,13 +211,15 @@ Xray 的 `config.json` 需要添加以下配置：
 ```bash
 # 服务端口
 APP_PORT=18080
+APP_BIND_HOST=127.0.0.1
 
 # 后端
 NODE_ENV=production
 PORT=3000
 HOST=0.0.0.0
 TRUST_PROXY=true
-CORS_ORIGIN=*
+CORS_ORIGIN=https://sub.example.com
+SUB_LOGIN_RATE_LIMIT_ENABLED=true
 
 # 订阅链接公开地址（使用域名时必填）
 SUB_PUBLIC_BASE_URL=https://sub.example.com
@@ -252,6 +262,7 @@ TRAFFIC_SYNC_ENABLED=true
 # Hysteria2 认证服务
 HY2_AUTH_PORT=9998
 HY2_AUTH_SECRET=your-auth-secret
+HY2_AUTH_REQUIRE_SECRET=true
 HY2_AUTH_ENABLED=true
 
 # Xray 动态 UUID 管理

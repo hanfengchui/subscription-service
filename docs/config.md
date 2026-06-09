@@ -4,10 +4,16 @@ Edit `.env` in the repo root. Below are the main settings.
 
 ## Core
 - `APP_PORT`: host port for Nginx (default 18080)
+- `APP_BIND_HOST`: host address for the Nginx port mapping (default `0.0.0.0`). Use `127.0.0.1` when publishing through an external HTTPS reverse proxy.
 - `NODE_ENV`: `production` recommended
 - `PORT`: backend port inside container (default 3000)
 - `TRUST_PROXY`: `true` when behind Nginx
+- `CORS_ORIGIN`: allowed browser origins. Use `*` for all origins or comma-separated origins such as `https://sub.example.com,https://admin.example.com`.
 - `SUB_PUBLIC_BASE_URL`: optional fixed base URL for subscription links
+- `SUB_LOGIN_RATE_LIMIT_ENABLED`: enable login failure throttling (default `true`)
+- `SUB_LOGIN_RATE_LIMIT_MAX`: failed login attempts per IP + username window (default `10`)
+- `SUB_LOGIN_RATE_LIMIT_WINDOW`: failure counting window in seconds (default `900`)
+- `SUB_LOGIN_RATE_LIMIT_BLOCK`: block duration in seconds after too many failures (default `900`)
 
 ## Admin API
 - `SUB_ADMIN_API_KEY`: required for `/sub/admin/*`
@@ -53,6 +59,7 @@ VLESS gRPC:
 ## Hysteria2 Auth Service
 - `HY2_AUTH_PORT`
 - `HY2_AUTH_SECRET`
+- `HY2_AUTH_REQUIRE_SECRET`: require Hysteria2 auth requests to include `Authorization: <secret>` or `X-Hy2-Auth-Secret: <secret>`
 - `HY2_AUTH_ENABLED`
 
 ## Xray Dynamic UUID Management

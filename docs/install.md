@@ -20,6 +20,14 @@ Edit `APP_PORT` in `.env`, then restart:
 docker compose -f deploy/compose/docker-compose.yml --env-file .env up -d --build
 ```
 
+When publishing the service behind an external HTTPS reverse proxy, also set:
+
+```bash
+SUB_PUBLIC_BASE_URL=https://sub.example.com
+CORS_ORIGIN=https://sub.example.com
+APP_BIND_HOST=127.0.0.1
+```
+
 ## Stop / Restart
 ```bash
 # stop

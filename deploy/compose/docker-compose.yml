@@ -38,7 +38,7 @@ services:
     env_file:
       - ../../.env
     ports:
-      - "${APP_PORT:-18080}:80"
+      - "${APP_BIND_HOST:-0.0.0.0}:${APP_PORT:-18080}:80"
     depends_on:
       backend:
         condition: service_healthy

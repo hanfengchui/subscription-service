@@ -246,7 +246,9 @@ cp .env.example .env
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `APP_PORT` | External service port | 18080 |
+| `APP_BIND_HOST` | Bind address; use `127.0.0.1` behind an external HTTPS reverse proxy | 0.0.0.0 |
 | `NODE_ENV` | Runtime environment | production |
+| `CORS_ORIGIN` | Browser CORS origins; set this to the panel domain in production | * |
 | `SUB_ADMIN_API_KEY` | Admin API key | Auto-generated |
 | `SUB_PUBLIC_BASE_URL` | Public URL for subscription links | Auto-detected |
 | `SUB_INIT_ADMIN` | Create default admin on first start | true |
@@ -288,6 +290,7 @@ cp .env.example .env
 | `HY2_AUTH_ENABLED` | Enable auth service | true |
 | `HY2_AUTH_PORT` | Auth service port | 9998 |
 | `HY2_AUTH_SECRET` | Auth service secret | - |
+| `HY2_AUTH_REQUIRE_SECRET` | Require Hysteria2 requests to include the auth secret | true |
 
 For detailed configuration, see: [Configuration Docs](docs/config.md)
 
