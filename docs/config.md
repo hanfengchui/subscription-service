@@ -59,7 +59,7 @@ VLESS gRPC:
 ## Hysteria2 Auth Service
 - `HY2_AUTH_PORT`
 - `HY2_AUTH_SECRET`
-- `HY2_AUTH_REQUIRE_SECRET`: require Hysteria2 auth requests to include `Authorization: <secret>` or `X-Hy2-Auth-Secret: <secret>`
+- `HY2_AUTH_REQUIRE_SECRET`: require requests to include `Authorization: <secret>` or `X-Hy2-Auth-Secret: <secret>`. Keep this `false` when Hysteria2 calls the auth service directly.
 - `HY2_AUTH_ENABLED`
 
 ## Xray Dynamic UUID Management

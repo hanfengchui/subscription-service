@@ -290,7 +290,7 @@ cp .env.example .env
 | `HY2_AUTH_ENABLED` | 是否启用认证服务 | true |
 | `HY2_AUTH_PORT` | 认证服务端口 | 9998 |
 | `HY2_AUTH_SECRET` | 认证服务密钥 | - |
-| `HY2_AUTH_REQUIRE_SECRET` | 是否要求 Hysteria2 请求携带认证密钥 | true |
+| `HY2_AUTH_REQUIRE_SECRET` | 是否要求认证请求携带额外密钥；Hysteria2 直连认证服务时保持关闭 | false |
 
 详细配置请参考：[配置文档](docs/config.zh-CN.md)
 

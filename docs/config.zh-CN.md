@@ -147,7 +147,7 @@ trafficStats:
 |------|------|--------|------|
 | `HY2_AUTH_PORT` | 认证服务监听端口 | `9998` | 否 |
 | `HY2_AUTH_SECRET` | 认证请求验证密钥（可选） | 自动生成 | 否 |
-| `HY2_AUTH_REQUIRE_SECRET` | 是否要求 Hysteria2 请求携带 `Authorization` 或 `X-Hy2-Auth-Secret` | `true` | 否 |
+| `HY2_AUTH_REQUIRE_SECRET` | 是否要求请求携带 `Authorization` 或 `X-Hy2-Auth-Secret`。Hysteria2 HTTP 认证通常不携带自定义请求头，直接对接时保持 `false` | `false` | 否 |
 | `HY2_AUTH_ENABLED` | 是否启用认证服务 | `false` | 否 |
 
 **Hysteria2 服务端配置示例：**
@@ -158,8 +158,6 @@ auth:
   http:
     url: http://127.0.0.1:9998/auth
     insecure: false
-    headers:
-      Authorization: your-auth-secret
 ```
 
 ### Xray 动态 UUID 管理
@@ -262,7 +260,7 @@ TRAFFIC_SYNC_ENABLED=true
 # Hysteria2 认证服务
 HY2_AUTH_PORT=9998
 HY2_AUTH_SECRET=your-auth-secret
-HY2_AUTH_REQUIRE_SECRET=true
+HY2_AUTH_REQUIRE_SECRET=false
 HY2_AUTH_ENABLED=true
 
 # Xray 动态 UUID 管理

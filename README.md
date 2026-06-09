@@ -290,7 +290,7 @@ cp .env.example .env
 | `HY2_AUTH_ENABLED` | Enable auth service | true |
 | `HY2_AUTH_PORT` | Auth service port | 9998 |
 | `HY2_AUTH_SECRET` | Auth service secret | - |
-| `HY2_AUTH_REQUIRE_SECRET` | Require Hysteria2 requests to include the auth secret | true |
+| `HY2_AUTH_REQUIRE_SECRET` | Require an extra auth secret; keep disabled when Hysteria2 calls the auth service directly | false |
 
 For detailed configuration, see: [Configuration Docs](docs/config.md)
 
