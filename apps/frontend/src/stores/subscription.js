@@ -15,7 +15,13 @@ let isHandling401 = false
 api.interceptors.response.use(
   response => response,
   error => {
-    if (error.response?.status === 401 && !isHandling401) {
+    const requestUrl = error.config?.url || ''
+    const isLoginRequest =
+      requestUrl === '/sub/auth/login' ||
+      requestUrl.endsWith('/sub/auth/login') ||
+      requestUrl.includes('/sub/auth/login?')
+
+    if (error.response?.status === 401 && !isHandling401 && !isLoginRequest) {
       isHandling401 = true
       // 清除本地存储
       localStorage.removeItem('sub_token')
