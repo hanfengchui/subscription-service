@@ -204,6 +204,18 @@ Xray 的 `config.json` 需要添加以下配置：
 
 > 注意：VLESS inbound 需要添加 `tag` 字段（如 `vless-grpc`），并在 `clients` 中保留一个固定 UUID 作为 fallback。
 
+### 仅 IPv4 VPS 的代理出口
+
+部分 VPS 没有分配公网 IPv6 地址。如果客户端通过 Hysteria2 或 VLESS 发送 IPv6 字面量目标，即使认证和 IPv4 出口正常，也可能出现访问 Google 等站点失败，服务端日志通常类似 `network is unreachable`。
+
+可在代理服务器上运行维护脚本，让运行时 Xray/Hysteria2 配置优先走 IPv4：
+
+```bash
+sudo scripts/force-ipv4-proxy-egress.sh --restart
+```
+
+脚本会先备份配置，然后启用 sniffing、将 Xray `freedom` 出站设为 `UseIPv4`、在 Xray routing 中拦截 IPv6 字面量目标，并将 Hysteria2 direct outbound 设为 `mode: 4`。
+
 ## 完整配置示例
 
 ```bash

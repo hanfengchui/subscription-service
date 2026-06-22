@@ -100,6 +100,8 @@ Non-interactive mode features:
 | Secret Generation | Auto-generates random API keys, database passwords, etc. |
 | Service Health Check | Waits for all services to be ready before displaying access info |
 
+For IPv4-only VPS hosts, run `sudo scripts/force-ipv4-proxy-egress.sh --restart` on the proxy host to patch runtime Xray/Hysteria2 configs so client IPv6 destination requests fall back to IPv4 egress.
+
 **Hysteria2 Config Auto-Detection Paths**:
 - `/etc/hysteria/config.yaml`
 - `/opt/hysteria/config.yaml`

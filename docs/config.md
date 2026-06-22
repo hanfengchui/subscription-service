@@ -69,3 +69,15 @@ VLESS gRPC:
 - `XRAY_ENABLED`: Enable dynamic VLESS user management (default `true`)
 
 > When enabled, each subscription token gets a unique VLESS UUID. The service dynamically adds/removes users via Xray's gRPC API.
+
+## IPv4-only VPS Egress
+
+Some VPS providers do not assign a public IPv6 address. If clients send IPv6 literal destinations through Hysteria2 or VLESS, Google/Facebook-style traffic can fail with `network is unreachable` even though authentication and IPv4 egress are healthy.
+
+Run the maintenance helper on the proxy host to make runtime Xray/Hysteria2 configs prefer IPv4:
+
+```bash
+sudo scripts/force-ipv4-proxy-egress.sh --restart
+```
+
+The script backs up configs before changing them, enables sniffing, forces Xray `freedom` outbound to `UseIPv4`, blocks literal IPv6 destinations in Xray routing, and sets Hysteria2 direct outbound `mode: 4`.
