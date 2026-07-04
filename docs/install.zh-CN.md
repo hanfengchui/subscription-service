@@ -30,6 +30,55 @@ bash scripts/install.sh
 8. 构建 Docker 镜像并启动服务
 9. 等待服务就绪并显示访问地址
 
+## 生产模式一键安装
+
+如果要部署成公网 HTTPS 域名访问，并让 VLESS gRPC 通过宿主机 Nginx 的 `443` 转发到本机 Xray，可使用生产模式：
+
+```bash
+git clone https://github.com/hanfengchui/subscription-service.git
+cd subscription-service
+PUBLIC_DOMAIN=nodehome.example.com LETSENCRYPT_EMAIL=admin@example.com bash scripts/install-production.sh --yes
+```
+
+等价命令：
+
+```bash
+PUBLIC_DOMAIN=nodehome.example.com bash scripts/install.sh --production --yes
+```
+
+生产模式会额外执行：
+
+1. 将 Docker 内置 Nginx 绑定到 `127.0.0.1:APP_PORT`
+2. 设置 `SUB_PUBLIC_BASE_URL=https://PUBLIC_DOMAIN`
+3. 设置 `CORS_ORIGIN=https://PUBLIC_DOMAIN`
+4. 设置 VLESS gRPC 节点为 `PUBLIC_DOMAIN:443`
+5. 自动检测 Xray gRPC inbound 端口（默认 `127.0.0.1:10001`）
+6. 安装/复用宿主机 Nginx
+7. 通过 certbot 申请 Let's Encrypt 证书
+8. 写入宿主机 Nginx 配置：
+   - `/` 反代到 `127.0.0.1:APP_PORT`
+   - `/vless-grpc` 使用 `grpc_pass` 转发到 Xray
+   - `/healthz` 返回 `ok`
+
+生产模式前置条件：
+
+- `PUBLIC_DOMAIN` 已解析到当前服务器公网 IP
+- 服务器 `80` 和 `443` 端口可从公网访问
+- 如需 VLESS gRPC 节点可用，宿主机已有 Xray inbound 监听本机端口（默认 `10001`）
+- 如需 Hysteria2 认证/流量统计，宿主机已有对应 Hysteria2 配置
+
+如果服务器已经有同域名 Nginx 配置，脚本会先检查它是否已包含生产所需的 HTTPS、反代和 VLESS gRPC 转发；满足要求时直接复用，不会覆盖自定义配置。若确认要由脚本覆盖已有同域名配置，添加：
+
+```bash
+PUBLIC_DOMAIN=nodehome.example.com bash scripts/install-production.sh --yes --force-host-nginx
+```
+
+只生成生产 `.env`，不改宿主机 Nginx：
+
+```bash
+PUBLIC_DOMAIN=nodehome.example.com bash scripts/install-production.sh --yes --skip-host-nginx
+```
+
 ## 一键卸载
 
 如需完全卸载服务，运行：

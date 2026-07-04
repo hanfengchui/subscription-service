@@ -15,6 +15,18 @@ Edit `.env` in the repo root. Below are the main settings.
 - `SUB_LOGIN_RATE_LIMIT_WINDOW`: failure counting window in seconds (default `900`)
 - `SUB_LOGIN_RATE_LIMIT_BLOCK`: block duration in seconds after too many failures (default `900`)
 
+`scripts/install-production.sh` and `scripts/install.sh --production` automatically set the production-facing values:
+
+```bash
+APP_BIND_HOST=127.0.0.1
+SUB_PUBLIC_BASE_URL=https://your-domain.example
+CORS_ORIGIN=https://your-domain.example
+SUB_VLESS_SERVER=your-domain.example
+SUB_VLESS_PORT=443
+SUB_VLESS_TYPE=grpc
+SUB_VLESS_SERVICE_NAME=vless-grpc
+```
+
 ## Admin API
 - `SUB_ADMIN_API_KEY`: required for `/sub/admin/*`
 

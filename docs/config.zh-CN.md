@@ -11,6 +11,18 @@
 | `APP_PORT` | Nginx 对外暴露的端口 | `18080` | 否 |
 | `APP_BIND_HOST` | Nginx 端口绑定地址。使用外部 HTTPS 反向代理时建议设为 `127.0.0.1` | `0.0.0.0` | 否 |
 
+使用 `scripts/install-production.sh` 或 `scripts/install.sh --production` 时，脚本会自动设置：
+
+```bash
+APP_BIND_HOST=127.0.0.1
+SUB_PUBLIC_BASE_URL=https://你的域名
+CORS_ORIGIN=https://你的域名
+SUB_VLESS_SERVER=你的域名
+SUB_VLESS_PORT=443
+SUB_VLESS_TYPE=grpc
+SUB_VLESS_SERVICE_NAME=vless-grpc
+```
+
 ### 后端服务
 
 | 变量 | 说明 | 默认值 | 必填 |

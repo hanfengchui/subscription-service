@@ -14,6 +14,16 @@ ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 ENV_FILE="$ROOT_DIR/.env"
 COMPOSE_FILE="$ROOT_DIR/deploy/compose/docker-compose.yml"
 NON_INTERACTIVE="${NON_INTERACTIVE:-false}"
+PRODUCTION_MODE="${PRODUCTION_MODE:-false}"
+PUBLIC_DOMAIN="${PUBLIC_DOMAIN:-${SUB_PUBLIC_DOMAIN:-}}"
+LETSENCRYPT_EMAIL="${LETSENCRYPT_EMAIL:-}"
+HOST_NGINX_ENABLED="${HOST_NGINX_ENABLED:-auto}"
+HOST_NGINX_FORCE="${HOST_NGINX_FORCE:-false}"
+HOST_NGINX_CONF="${HOST_NGINX_CONF:-}"
+CERTBOT_ENABLED="${CERTBOT_ENABLED:-true}"
+VLESS_GRPC_PORT="${VLESS_GRPC_PORT:-10001}"
+VLESS_WS_PORT="${VLESS_WS_PORT:-10002}"
+ENABLE_VLESS_WS_PROXY="${ENABLE_VLESS_WS_PROXY:-true}"
 
 # 常见 Hysteria2 配置文件路径
 HY2_CONFIG_PATHS=(
@@ -45,14 +55,106 @@ command_exists() {
   command -v "$1" >/dev/null 2>&1
 }
 
+# 显示帮助
+usage() {
+  cat <<EOF
+Usage: bash scripts/install.sh [options]
+
+Options:
+  -y, --yes, --non-interactive, --auto  非交互安装
+  --production                          启用生产模式（HTTPS 域名 + 宿主机 Nginx + VLESS gRPC 代理）
+  --domain DOMAIN                       生产模式公开域名，例如 nodehome.example.com
+  --email EMAIL                         Let's Encrypt 通知邮箱；留空时使用 certbot 无邮箱模式
+  --host-nginx                          强制配置宿主机 Nginx
+  --skip-host-nginx                     跳过宿主机 Nginx 配置，只写生产 .env
+  --force-host-nginx                    允许覆盖已有同域名 Nginx 配置（会先备份）
+  --skip-certbot                        不自动申请 Let's Encrypt 证书
+  --vless-grpc-port PORT                宿主机 Xray VLESS gRPC 端口，默认 10001
+  --vless-ws-port PORT                  宿主机 Xray VLESS WebSocket 端口，默认 10002
+  -h, --help                            显示帮助
+
+Environment aliases:
+  PUBLIC_DOMAIN / SUB_PUBLIC_DOMAIN     等同 --domain
+  LETSENCRYPT_EMAIL                     等同 --email
+  PRODUCTION_MODE=true                  等同 --production
+EOF
+}
+
+require_next_arg() {
+  local opt="$1"
+  local value="${2:-}"
+  if [ -z "$value" ]; then
+    error "${opt} 需要一个参数"
+    usage
+    exit 1
+  fi
+}
+
 # 解析参数
 parse_args() {
-  for arg in "$@"; do
-    case "$arg" in
+  while [ $# -gt 0 ]; do
+    case "$1" in
       -y|--yes|--non-interactive|--auto)
         NON_INTERACTIVE="true"
         ;;
+      --production)
+        PRODUCTION_MODE="true"
+        ;;
+      --domain)
+        require_next_arg "$1" "${2:-}"
+        PUBLIC_DOMAIN="$2"
+        shift
+        ;;
+      --domain=*)
+        PUBLIC_DOMAIN="${1#*=}"
+        ;;
+      --email)
+        require_next_arg "$1" "${2:-}"
+        LETSENCRYPT_EMAIL="$2"
+        shift
+        ;;
+      --email=*)
+        LETSENCRYPT_EMAIL="${1#*=}"
+        ;;
+      --host-nginx)
+        HOST_NGINX_ENABLED="true"
+        ;;
+      --skip-host-nginx)
+        HOST_NGINX_ENABLED="false"
+        ;;
+      --force-host-nginx)
+        HOST_NGINX_FORCE="true"
+        ;;
+      --skip-certbot)
+        CERTBOT_ENABLED="false"
+        ;;
+      --vless-grpc-port)
+        require_next_arg "$1" "${2:-}"
+        VLESS_GRPC_PORT="$2"
+        shift
+        ;;
+      --vless-grpc-port=*)
+        VLESS_GRPC_PORT="${1#*=}"
+        ;;
+      --vless-ws-port)
+        require_next_arg "$1" "${2:-}"
+        VLESS_WS_PORT="$2"
+        shift
+        ;;
+      --vless-ws-port=*)
+        VLESS_WS_PORT="${1#*=}"
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        error "未知参数: $1"
+        usage
+        exit 1
+        ;;
     esac
+    shift
   done
 }
 
@@ -76,6 +178,159 @@ set_env_var() {
   else
     printf '%s=%s\n' "$key" "$value" >> "$ENV_FILE"
   fi
+}
+
+get_env_var() {
+  local key="$1"
+  grep -E "^${key}=" "$ENV_FILE" 2>/dev/null | head -n1 | cut -d= -f2- || true
+}
+
+normalize_domain_value() {
+  local value="$1"
+  value="${value#http://}"
+  value="${value#https://}"
+  value="${value%%/*}"
+  value="${value%%:*}"
+  echo "$value"
+}
+
+is_placeholder_value() {
+  local value="${1:-}"
+  [ -z "$value" ] || [ "$value" = "example.com" ] || [ "$value" = "YOUR_SERVER_IP" ] || [ "$value" = "127.0.0.1" ]
+}
+
+is_ipv4_address() {
+  local value="${1:-}"
+  [[ "$value" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]
+}
+
+is_valid_domain() {
+  local value="$1"
+  [[ "$value" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$ ]]
+}
+
+detect_public_domain_from_env() {
+  if [ ! -f "$ENV_FILE" ]; then
+    return 0
+  fi
+
+  local base_url vless_server hy2_server
+  base_url=$(get_env_var "SUB_PUBLIC_BASE_URL")
+  vless_server=$(get_env_var "SUB_VLESS_SERVER")
+  hy2_server=$(get_env_var "SUB_HY2_SERVER")
+
+  if [ -z "$PUBLIC_DOMAIN" ] && [ -n "$base_url" ]; then
+    PUBLIC_DOMAIN=$(normalize_domain_value "$base_url")
+  fi
+  if [ -z "$PUBLIC_DOMAIN" ] && ! is_placeholder_value "$vless_server"; then
+    PUBLIC_DOMAIN="$vless_server"
+  fi
+  if [ -z "$PUBLIC_DOMAIN" ] && ! is_placeholder_value "$hy2_server"; then
+    PUBLIC_DOMAIN="$hy2_server"
+  fi
+}
+
+configure_production_inputs() {
+  if [ "$PRODUCTION_MODE" != "true" ]; then
+    return
+  fi
+
+  detect_public_domain_from_env
+  PUBLIC_DOMAIN=$(normalize_domain_value "$PUBLIC_DOMAIN")
+
+  if [ -z "$PUBLIC_DOMAIN" ]; then
+    if [ "$NON_INTERACTIVE" = "true" ]; then
+      error "生产模式需要公开域名。请使用 --domain nodehome.example.com 或 PUBLIC_DOMAIN=nodehome.example.com"
+      exit 1
+    fi
+
+    read -rp "生产环境公开域名（例如 nodehome.example.com）: " PUBLIC_DOMAIN
+    PUBLIC_DOMAIN=$(normalize_domain_value "$PUBLIC_DOMAIN")
+  fi
+
+  if ! is_valid_domain "$PUBLIC_DOMAIN"; then
+    error "公开域名格式不正确: ${PUBLIC_DOMAIN}"
+    exit 1
+  fi
+
+  if [ "$HOST_NGINX_ENABLED" = "auto" ]; then
+    HOST_NGINX_ENABLED="true"
+  fi
+
+  if [ "$HOST_NGINX_ENABLED" = "true" ] && [ "$(id -u)" != "0" ]; then
+    error "生产模式配置宿主机 Nginx 需要 root 权限；请用 root 执行，或加 --skip-host-nginx 只生成 .env"
+    exit 1
+  fi
+
+  success "生产模式域名: ${PUBLIC_DOMAIN}"
+}
+
+detect_xray_grpc_port_from_tags() {
+  if [ -z "${XRAY_INBOUND_TAGS_DETECTED:-}" ]; then
+    return
+  fi
+
+  local detected_port
+  detected_port=$(echo "$XRAY_INBOUND_TAGS_DETECTED" | tr ',' '\n' | awk -F: '$1 == "vless-grpc" && $2 ~ /^[0-9]+$/ { print $2; exit }')
+  if [ -n "$detected_port" ]; then
+    VLESS_GRPC_PORT="$detected_port"
+  fi
+}
+
+apply_production_config() {
+  if [ "$PRODUCTION_MODE" != "true" ]; then
+    return
+  fi
+
+  local public_url="https://${PUBLIC_DOMAIN}"
+  local current_hy2_sni current_vless_uuid hy2_sni_target
+
+  detect_hysteria2 || true
+  detect_xray || true
+  detect_xray_grpc_port_from_tags
+
+  set_env_var "APP_BIND_HOST" "127.0.0.1"
+  set_env_var "TRUST_PROXY" "true"
+  set_env_var "CORS_ORIGIN" "$public_url"
+  set_env_var "SUB_PUBLIC_BASE_URL" "$public_url"
+  set_env_var "HY2_AUTH_REQUIRE_SECRET" "false"
+
+  set_env_var "SUB_VLESS_SERVER" "$PUBLIC_DOMAIN"
+  set_env_var "SUB_VLESS_PORT" "443"
+  set_env_var "SUB_VLESS_SNI" "$PUBLIC_DOMAIN"
+  set_env_var "SUB_VLESS_TYPE" "grpc"
+  set_env_var "SUB_VLESS_SERVICE_NAME" "vless-grpc"
+  set_env_var "SUB_VLESS_MODE" "multi"
+
+  current_vless_uuid=$(get_env_var "SUB_VLESS_UUID")
+  if { [ -z "$current_vless_uuid" ] || [ "$current_vless_uuid" = "00000000-0000-0000-0000-000000000000" ]; } && [ -n "${VLESS_UUID:-}" ]; then
+    set_env_var "SUB_VLESS_UUID" "$VLESS_UUID"
+    current_vless_uuid="$VLESS_UUID"
+  fi
+
+  set_env_var "SUB_HY2_SERVER" "$PUBLIC_DOMAIN"
+  current_hy2_sni=$(get_env_var "SUB_HY2_SNI")
+  hy2_sni_target="${HY2_SNI:-$PUBLIC_DOMAIN}"
+  if is_placeholder_value "$current_hy2_sni" || is_ipv4_address "$current_hy2_sni"; then
+    set_env_var "SUB_HY2_SNI" "$hy2_sni_target"
+  fi
+
+  HY2_CONFIGURED="true"
+  HY2_SERVER="$PUBLIC_DOMAIN"
+  HY2_PORT="$(get_env_var "SUB_HY2_PORT")"
+  HY2_PORT="${HY2_PORT:-443}"
+  VLESS_SERVER="$PUBLIC_DOMAIN"
+  VLESS_PORT="443"
+  VLESS_TYPE="grpc"
+  VLESS_SERVICE_NAME="vless-grpc"
+  if [ -n "$current_vless_uuid" ] && [ "$current_vless_uuid" != "00000000-0000-0000-0000-000000000000" ]; then
+    VLESS_CONFIGURED="true"
+  else
+    VLESS_CONFIGURED="false"
+    warn "未检测到可用 VLESS UUID；已写入生产域名，但 VLESS 节点需要 Xray 配置提供 UUID"
+  fi
+
+  success "已写入生产 .env: ${public_url}，VLESS gRPC ${PUBLIC_DOMAIN}:443 -> 127.0.0.1:${VLESS_GRPC_PORT}"
 }
 
 # 获取公网 IP
@@ -818,6 +1073,319 @@ wait_for_service() {
   return 1
 }
 
+install_host_proxy_dependencies() {
+  local need_certbot="false"
+  if [ "$CERTBOT_ENABLED" = "true" ] && [ ! -f "/etc/letsencrypt/live/${PUBLIC_DOMAIN}/fullchain.pem" ]; then
+    need_certbot="true"
+  fi
+
+  if command_exists nginx && { [ "$need_certbot" = "false" ] || command_exists certbot; }; then
+    return
+  fi
+
+  detect_os
+  info "安装宿主机 Nginx/证书工具..."
+
+  case "$OS_ID" in
+    ubuntu|debian)
+      apt-get update -qq >/dev/null 2>&1
+      if [ "$need_certbot" = "true" ]; then
+        apt-get install -y -qq nginx certbot >/dev/null 2>&1
+      else
+        apt-get install -y -qq nginx >/dev/null 2>&1
+      fi
+      ;;
+    centos|rhel|fedora|rocky|almalinux)
+      local pkg_cmd="yum"
+      command_exists dnf && pkg_cmd="dnf"
+      if [ "$need_certbot" = "true" ]; then
+        $pkg_cmd install -y -q nginx certbot >/dev/null 2>&1
+      else
+        $pkg_cmd install -y -q nginx >/dev/null 2>&1
+      fi
+      ;;
+    *)
+      error "生产模式需要 Nginx，但当前系统不支持自动安装: ${OS_ID}"
+      exit 1
+      ;;
+  esac
+
+  systemctl enable nginx >/dev/null 2>&1 || true
+  systemctl start nginx >/dev/null 2>&1 || true
+
+  if ! command_exists nginx; then
+    error "Nginx 安装失败，请手动安装后重试"
+    exit 1
+  fi
+  if [ "$need_certbot" = "true" ] && ! command_exists certbot; then
+    error "certbot 安装失败，请手动安装后重试"
+    exit 1
+  fi
+}
+
+find_nginx_config_for_domain() {
+  local domain="$1"
+  local dir match
+  for dir in /etc/nginx/sites-enabled /etc/nginx/sites-available /etc/nginx/conf.d; do
+    [ -d "$dir" ] || continue
+    match=$(grep -RslE "server_name[[:space:]].*${domain}([[:space:];]|$)" "$dir" 2>/dev/null | head -n1 || true)
+    if [ -n "$match" ]; then
+      if command_exists readlink; then
+        readlink -f "$match" 2>/dev/null || echo "$match"
+      else
+        echo "$match"
+      fi
+      return
+    fi
+  done
+}
+
+choose_nginx_config_path() {
+  if [ -d /etc/nginx/sites-available ]; then
+    echo "/etc/nginx/sites-available/subscription-service-${PUBLIC_DOMAIN}.conf"
+  else
+    echo "/etc/nginx/conf.d/subscription-service-${PUBLIC_DOMAIN}.conf"
+  fi
+}
+
+enable_nginx_config() {
+  local conf_file="$1"
+  if [[ "$conf_file" == /etc/nginx/sites-available/* ]] && [ -d /etc/nginx/sites-enabled ]; then
+    ln -sf "$conf_file" "/etc/nginx/sites-enabled/$(basename "$conf_file")"
+  fi
+}
+
+backup_nginx_config() {
+  local conf_file="$1"
+  if [ -f "$conf_file" ]; then
+    local backup="${conf_file}.bak.$(date +%Y%m%d%H%M%S)"
+    cp "$conf_file" "$backup"
+    info "已备份 Nginx 配置: ${backup}"
+  fi
+}
+
+nginx_config_matches_production() {
+  local conf_file="$1"
+  grep -qE "server_name[[:space:]].*${PUBLIC_DOMAIN}([[:space:];]|$)" "$conf_file" &&
+  grep -qE "listen[[:space:]]+443" "$conf_file" &&
+  grep -q "ssl_certificate" "$conf_file" &&
+  grep -q "grpc_pass grpc://127.0.0.1:${VLESS_GRPC_PORT}" "$conf_file" &&
+  grep -q "proxy_pass http://127.0.0.1:${APP_PORT}" "$conf_file" &&
+  ! grep -q '\$content_type' "$conf_file"
+}
+
+reload_host_nginx() {
+  if ! nginx -t; then
+    error "Nginx 配置校验失败"
+    exit 1
+  fi
+
+  if command_exists systemctl; then
+    systemctl reload nginx >/dev/null 2>&1 || systemctl restart nginx >/dev/null 2>&1
+  else
+    nginx -s reload
+  fi
+}
+
+write_http_nginx_config() {
+  local conf_file="$1"
+  cat > "$conf_file" <<EOF
+# Managed by subscription-service install.sh.
+server {
+    listen 80;
+    server_name ${PUBLIC_DOMAIN};
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        default_type text/plain;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:${APP_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_buffering off;
+        proxy_cache off;
+    }
+}
+EOF
+}
+
+ensure_letsencrypt_certificate() {
+  if [ -f "/etc/letsencrypt/live/${PUBLIC_DOMAIN}/fullchain.pem" ] && [ -f "/etc/letsencrypt/live/${PUBLIC_DOMAIN}/privkey.pem" ]; then
+    success "检测到现有 TLS 证书: ${PUBLIC_DOMAIN}"
+    return 0
+  fi
+
+  if [ "$CERTBOT_ENABLED" != "true" ]; then
+    warn "未启用 certbot，跳过 HTTPS 证书申请"
+    return 1
+  fi
+
+  if ! command_exists certbot; then
+    error "certbot 不存在，无法申请 HTTPS 证书"
+    exit 1
+  fi
+
+  local email_args=(--register-unsafely-without-email)
+  if [ -n "$LETSENCRYPT_EMAIL" ]; then
+    email_args=(--email "$LETSENCRYPT_EMAIL")
+  fi
+
+  info "申请 Let's Encrypt 证书: ${PUBLIC_DOMAIN}"
+  certbot certonly \
+    --webroot \
+    -w /var/www/certbot \
+    -d "$PUBLIC_DOMAIN" \
+    --non-interactive \
+    --agree-tos \
+    --keep-until-expiring \
+    "${email_args[@]}"
+}
+
+write_https_nginx_config() {
+  local conf_file="$1"
+  local ssl_options=""
+  local ssl_dhparam=""
+  local ws_location=""
+
+  if [ -f /etc/letsencrypt/options-ssl-nginx.conf ]; then
+    ssl_options="    include /etc/letsencrypt/options-ssl-nginx.conf;"
+  fi
+  if [ -f /etc/letsencrypt/ssl-dhparams.pem ]; then
+    ssl_dhparam="    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;"
+  fi
+
+  if [ "$ENABLE_VLESS_WS_PROXY" = "true" ]; then
+    ws_location=$(cat <<EOF
+
+    location ^~ /vless-ws {
+        proxy_pass http://127.0.0.1:${VLESS_WS_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_read_timeout 120s;
+    }
+EOF
+)
+  fi
+
+  cat > "$conf_file" <<EOF
+# Managed by subscription-service install.sh.
+server {
+    listen 80;
+    server_name ${PUBLIC_DOMAIN};
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        default_type text/plain;
+    }
+
+    location / {
+        return 301 https://\$host\$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl http2;
+    server_name ${PUBLIC_DOMAIN};
+
+    ssl_certificate /etc/letsencrypt/live/${PUBLIC_DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${PUBLIC_DOMAIN}/privkey.pem;
+${ssl_options}
+${ssl_dhparam}
+
+    location ^~ /vless-grpc {
+        grpc_pass grpc://127.0.0.1:${VLESS_GRPC_PORT};
+        grpc_set_header Host \$host;
+        grpc_set_header X-Real-IP \$remote_addr;
+        grpc_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        grpc_connect_timeout 60s;
+        grpc_read_timeout 720s;
+        grpc_send_timeout 720s;
+        grpc_socket_keepalive on;
+    }
+${ws_location}
+
+    location = /healthz {
+        add_header Content-Type text/plain;
+        return 200 'ok';
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:${APP_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_buffering off;
+        proxy_cache off;
+    }
+}
+EOF
+}
+
+ensure_host_nginx_production() {
+  if [ "$PRODUCTION_MODE" != "true" ] || [ "$HOST_NGINX_ENABLED" != "true" ]; then
+    return
+  fi
+
+  if [ "$(id -u)" != "0" ]; then
+    error "生产模式配置宿主机 Nginx 需要 root 权限；请用 root 执行，或加 --skip-host-nginx 只生成 .env"
+    exit 1
+  fi
+
+  install_host_proxy_dependencies
+  mkdir -p /var/www/certbot
+
+  local conf_file
+  conf_file="${HOST_NGINX_CONF:-}"
+  if [ -z "$conf_file" ]; then
+    conf_file=$(find_nginx_config_for_domain "$PUBLIC_DOMAIN")
+  fi
+
+  if [ -n "$conf_file" ] && [ -f "$conf_file" ] && [ "$HOST_NGINX_FORCE" != "true" ]; then
+    if nginx_config_matches_production "$conf_file"; then
+      HOST_NGINX_CONF="$conf_file"
+      enable_nginx_config "$conf_file"
+      reload_host_nginx
+      success "复用现有生产 Nginx 配置: ${conf_file}"
+      return
+    fi
+
+    error "发现已有同域名 Nginx 配置，但未满足生产要求: ${conf_file}"
+    error "为避免覆盖自定义配置，默认不自动改写。确认要覆盖时请加 --force-host-nginx"
+    exit 1
+  fi
+
+  if [ -z "$conf_file" ]; then
+    conf_file=$(choose_nginx_config_path)
+  fi
+  HOST_NGINX_CONF="$conf_file"
+
+  mkdir -p "$(dirname "$conf_file")"
+  backup_nginx_config "$conf_file"
+
+  write_http_nginx_config "$conf_file"
+  enable_nginx_config "$conf_file"
+  reload_host_nginx
+
+  if ensure_letsencrypt_certificate; then
+    write_https_nginx_config "$conf_file"
+    reload_host_nginx
+    success "生产 Nginx/HTTPS/VLESS gRPC 配置完成: ${conf_file}"
+  else
+    warn "已写入 HTTP 反向代理，但未配置 HTTPS；生产环境建议配置证书后重跑脚本"
+  fi
+}
+
 # 交互式配置节点
 configure_nodes() {
   echo ""
@@ -983,30 +1551,9 @@ configure_nodes() {
     read -rp "VLESS SNI [${VLESS_SERVER}]: " INPUT_VLESS_SNI
     VLESS_SNI=${INPUT_VLESS_SNI:-$VLESS_SERVER}
 
-    # 传输方式
-    echo ""
-    echo "VLESS 传输方式:"
-    echo "  1) gRPC"
-    echo "  2) WebSocket"
-    echo "  3) TCP"
-    read -rp "请选择 [1]: " VLESS_TRANSPORT
-    VLESS_TRANSPORT=${VLESS_TRANSPORT:-1}
-
-    case "$VLESS_TRANSPORT" in
-      2)
-        VLESS_TYPE="ws"
-        read -rp "WebSocket 路径 [/]: " VLESS_PATH
-        VLESS_PATH=${VLESS_PATH:-/}
-        ;;
-      3)
-        VLESS_TYPE="tcp"
-        ;;
-      *)
-        VLESS_TYPE="grpc"
-        read -rp "gRPC serviceName [vless-grpc]: " VLESS_SERVICE_NAME
-        VLESS_SERVICE_NAME=${VLESS_SERVICE_NAME:-vless-grpc}
-        ;;
-    esac
+    VLESS_TYPE="grpc"
+    read -rp "gRPC serviceName [vless-grpc]: " VLESS_SERVICE_NAME
+    VLESS_SERVICE_NAME=${VLESS_SERVICE_NAME:-vless-grpc}
 
     VLESS_CONFIGURED="true"
   else
@@ -1229,6 +1776,13 @@ main() {
     fi
   fi
 
+  FIRST_INSTALL="false"
+  if [ ! -f "$ENV_FILE" ]; then
+    FIRST_INSTALL="true"
+  fi
+
+  configure_production_inputs
+
   # 3. 检查端口
   APP_PORT=18080
   if [ -f "$ENV_FILE" ]; then
@@ -1239,7 +1793,9 @@ main() {
   info "检查端口 $APP_PORT..."
   if ! check_port "$APP_PORT"; then
     warn "端口 $APP_PORT 已被占用"
-    if [ "$NON_INTERACTIVE" = "true" ]; then
+    if [ "$FIRST_INSTALL" = "false" ]; then
+      info "检测到已有 .env，按现有部署端口继续；Docker Compose 会复用/更新当前服务"
+    elif [ "$NON_INTERACTIVE" = "true" ]; then
       APP_PORT=$(find_available_port $((APP_PORT + 1)))
       info "非交互模式: 使用可用端口 $APP_PORT"
     else
@@ -1253,12 +1809,10 @@ main() {
       fi
     fi
   fi
-  success "端口 $APP_PORT 可用"
+  success "端口 $APP_PORT 可用或已由当前部署占用"
 
   # 4. 生成或更新 .env 文件
-  FIRST_INSTALL="false"
   if [ ! -f "$ENV_FILE" ]; then
-    FIRST_INSTALL="true"
     info "生成 .env 配置文件..."
     cp "$ROOT_DIR/.env.example" "$ENV_FILE"
 
@@ -1311,6 +1865,8 @@ main() {
     fi
   fi
 
+  apply_production_config
+
   restart_hysteria_service_if_needed
 
   # 6. 检测国际网络连通性并配置镜像加速
@@ -1347,6 +1903,14 @@ main() {
     warn "后端服务可能仍在初始化，请稍后检查"
   }
 
+  ensure_host_nginx_production
+
+  if [ "$PRODUCTION_MODE" = "true" ] && [ "$HOST_NGINX_ENABLED" = "true" ]; then
+    wait_for_service "Production HTTPS" "https://${PUBLIC_DOMAIN}/sub/health" 20 || {
+      warn "生产 HTTPS 健康检查未通过，请检查 DNS、证书和宿主机 Nginx 配置"
+    }
+  fi
+
   # 9. 从日志中提取默认管理员密码
   ADMIN_PASSWORD=""
   for i in {1..10}; do
@@ -1364,13 +1928,21 @@ main() {
   fi
 
   # 11. 打印成功信息
+  PUBLIC_ACCESS_URL="http://${SERVER_IP}:${APP_PORT}"
+  if [ "$PRODUCTION_MODE" = "true" ]; then
+    PUBLIC_ACCESS_URL="https://${PUBLIC_DOMAIN}"
+  fi
+
   echo ""
   echo -e "${GREEN}========================================${NC}"
   echo -e "${GREEN}   安装完成！${NC}"
   echo -e "${GREEN}========================================${NC}"
   echo ""
-  echo -e "前端面板: ${BLUE}http://${SERVER_IP}:${APP_PORT}/${NC}"
-  echo -e "API 地址: ${BLUE}http://${SERVER_IP}:${APP_PORT}/sub/${NC}"
+  echo -e "前端面板: ${BLUE}${PUBLIC_ACCESS_URL}/${NC}"
+  echo -e "API 地址: ${BLUE}${PUBLIC_ACCESS_URL}/sub/${NC}"
+  if [ "$PRODUCTION_MODE" = "true" ]; then
+    echo -e "本机服务: ${BLUE}http://127.0.0.1:${APP_PORT}/${NC}"
+  fi
   echo ""
   echo -e "${CYAN}默认管理员账号:${NC}"
   echo -e "  用户名: ${YELLOW}admin${NC}"
@@ -1408,6 +1980,14 @@ main() {
     echo -e "  Xray 动态 UUID: ${GREEN}已启用${NC} (${XRAY_INBOUND_TAGS_DETECTED})"
   else
     echo -e "  Xray 动态 UUID: ${YELLOW}未检测到 Xray API${NC}"
+  fi
+
+  if [ "$PRODUCTION_MODE" = "true" ]; then
+    echo -e "  生产 Nginx: ${GREEN}${HOST_NGINX_ENABLED}${NC}"
+    if [ -n "${HOST_NGINX_CONF:-}" ]; then
+      echo -e "    配置文件: ${BLUE}${HOST_NGINX_CONF}${NC}"
+    fi
+    echo -e "    VLESS gRPC: ${BLUE}${PUBLIC_DOMAIN}:443 -> 127.0.0.1:${VLESS_GRPC_PORT}${NC}"
   fi
 
   echo ""
