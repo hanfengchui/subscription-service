@@ -391,7 +391,7 @@ docker compose -f deploy/compose/docker-compose.yml --env-file .env up -d --buil
 
 **Q: What is "burn-after-reading" (one-time use) mode?**
 
-A: When creating sub-users, subscription links are generated in one-time use mode by default. This means:
+A: Account-bound subscription links are reusable by default so client apps can refresh them repeatedly. One-time use can still be enabled manually when creating special-purpose links. In one-time mode:
 - The subscription link can only be used **once** to fetch subscription content (node list)
 - After the first successful fetch, the link becomes invalid and shows "Subscription link expired, please regenerate"
 - **Important**: This only restricts fetching subscription content; nodes already imported to client apps will continue to work normally
@@ -399,7 +399,7 @@ A: When creating sub-users, subscription links are generated in one-time use mod
 
 **Q: Why use one-time links?**
 
-A: One-time links prevent subscription link sharing. Once a user imports the subscription to their client, the link becomes invalid, preventing others from using the same link.
+A: One-time links prevent subscription link sharing. They are best for special-purpose or temporary links; normal account subscriptions should stay reusable so client refreshes do not burn the URL.
 
 **Q: What is the difference between strict and loose mode?**
 

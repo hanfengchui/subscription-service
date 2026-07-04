@@ -1183,7 +1183,7 @@ const qrCodeUrl = ref('')
 const qrCanvas = ref(null)
 
 const passwordForm = reactive({ oldPassword: '', newPassword: '', confirmPassword: '' })
-const createForm = reactive({ username: '', password: '', name: '', oneTimeUse: true, trafficLimit: 500 })
+const createForm = reactive({ username: '', password: '', name: '', oneTimeUse: false, trafficLimit: 500 })
 const resetForm = reactive({ newPassword: '' })
 
 // 多格式订阅配置
@@ -1519,7 +1519,7 @@ const handleCreateUser = async () => {
       createForm.username = ''
       createForm.password = ''
       createForm.name = ''
-      createForm.oneTimeUse = true
+      createForm.oneTimeUse = false
       createForm.trafficLimit = 500
       await loadSubUsers()
     }

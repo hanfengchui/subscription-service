@@ -135,6 +135,7 @@ class SubscriptionMySQLClient {
     await this._addColumnIfNotExists('sub_tokens', 'is_consumed', 'BOOLEAN DEFAULT FALSE')
     await this._addColumnIfNotExists('sub_tokens', 'user_id', 'VARCHAR(64) DEFAULT NULL')
     await this._addColumnIfNotExists('sub_tokens', 'vless_uuid', 'VARCHAR(36) DEFAULT NULL')
+    await this.normalizeCurrentUserTokens()
 
     // 用户统计表
     await this.pool.execute(`
@@ -338,10 +339,6 @@ class SubscriptionMySQLClient {
           [oldToken]
         )
       }
-    } else {
-      // 宽松模式：不 revoke 旧 token，不修改任何字段
-      // 阅后即焚链接用一次就失效（is_consumed=true），这是正确的行为
-      // 旧 token 保持 status=active，hy2/vless 认证仍然有效
     }
 
     // 创建新 token 记录
@@ -354,6 +351,7 @@ class SubscriptionMySQLClient {
     // 如果旧 token 没有关联用户，自动关联到 admin 用户
     const DEFAULT_ADMIN_USER_ID = '2165a7372f9f56e0'
     const userId = oldTokenData.userId || DEFAULT_ADMIN_USER_ID
+    const oneTimeUse = oldTokenData.userId ? false : oldTokenData.oneTimeUse || false
 
     const sql = `
       INSERT INTO sub_tokens (id, token, name, status, expires_at, max_access, one_time_use, user_id, allowed_ips, enabled_nodes, created_by, vless_uuid, created_at)
@@ -365,7 +363,7 @@ class SubscriptionMySQLClient {
       oldTokenData.name || '订阅链接',
       expiresAt,
       oldTokenData.maxAccess || 0,
-      oldTokenData.oneTimeUse || false,
+      oneTimeUse,
       userId,
       JSON.stringify(oldTokenData.allowedIPs || []),
       JSON.stringify(oldTokenData.enabledNodes || []),
@@ -474,6 +472,21 @@ class SubscriptionMySQLClient {
       "SELECT * FROM sub_tokens WHERE status = 'active' AND vless_uuid IS NOT NULL"
     )
     return rows.map(row => this._formatToken(row))
+  }
+
+  // 当前绑定到用户账号的订阅链接需要支持客户端重复刷新。
+  async normalizeCurrentUserTokens() {
+    const [result] = await this.pool.execute(`
+      UPDATE sub_tokens t
+      JOIN sub_users u ON u.subscription_token = t.token
+      SET t.one_time_use = FALSE, t.is_consumed = FALSE
+      WHERE t.status = 'active'
+        AND (t.one_time_use = TRUE OR t.is_consumed = TRUE)
+    `)
+
+    if (result.affectedRows > 0) {
+      logger.info(`🔧 Normalized ${result.affectedRows} current user subscription tokens to reusable mode`)
+    }
   }
 
   // 按状态查询用户的 token

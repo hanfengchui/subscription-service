@@ -607,7 +607,7 @@ router.get('/auth/sub-users', authenticateSubAdmin, async (req, res) => {
  */
 router.post('/auth/sub-users', authenticateSubAdmin, async (req, res) => {
   try {
-    const { username, password, name, expiresAt, oneTimeUse = true, trafficLimit } = req.body
+    const { username, password, name, expiresAt, oneTimeUse = false, trafficLimit } = req.body
 
     if (!username || !password) {
       return res.status(400).json({ error: '用户名和密码必填' })
@@ -628,7 +628,7 @@ router.post('/auth/sub-users', authenticateSubAdmin, async (req, res) => {
       return res.status(400).json({ error: result.error })
     }
 
-    // 自动创建一次性订阅链接
+    // 自动创建可重复拉取的账号绑定订阅链接；手工传 oneTimeUse=true 时仍支持一次性链接。
     const tokenResult = await subscriptionService.createSubscriptionToken({
       name: `${username}的订阅`,
       expiryDays: 30,
