@@ -260,6 +260,11 @@ TRAFFIC_SYNC_ENABLED=true
 docker compose -f deploy/compose/docker-compose.yml --env-file .env up -d --build
 ```
 
+### 步骤 6：安装稳定性守护（推荐）
+
+生产节点建议安装 HY2 的自动拉起、健康检查、独立证书续期与 DNS 故障切换。
+完整说明见 [Hysteria2 稳定性守护](hy2-reliability.zh-CN.md)。
+
 ## 停止 / 重启 / 更新
 
 ```bash

@@ -1,0 +1,9 @@
+[Unit]
+Description=Renew only the certificate used by Hysteria2
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/default/hy2-guardian
+ExecStart=/usr/local/sbin/hy2-cert-renew

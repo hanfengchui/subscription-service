@@ -6,6 +6,10 @@ HY2_CONFIG="${HY2_CONFIG:-/etc/hysteria/config.yaml}"
 XRAY_SERVICE="${XRAY_SERVICE:-xray.service}"
 HY2_SERVICE="${HY2_SERVICE:-hysteria-server.service}"
 RESTART_SERVICES="${RESTART_SERVICES:-false}"
+XRAY_BACKUP=""
+HY2_BACKUP=""
+XRAY_PATCHED=false
+HY2_PATCHED=false
 
 usage() {
   cat <<'EOF'
@@ -18,6 +22,9 @@ Changes:
   - Xray freedom outbound: set domainStrategy=UseIPv4.
   - Xray routing: block literal IPv6 destinations (::/0).
   - Hysteria2 server: enable sniffing and set direct outbound mode=4.
+  - Hysteria2 resolver: prefer DoH over lossy public UDP DNS.
+  - Hysteria2 health: enable the built-in speed test endpoint.
+  - Hysteria2 QUIC: remove unmeasured receive-window overrides.
 
 Environment overrides:
   XRAY_CONFIG=/path/to/config.json
@@ -49,7 +56,9 @@ backup_file() {
   local file="$1"
   local stamp
   stamp=$(date +%Y%m%d-%H%M%S)
-  cp -a "$file" "${file}.ipv4-egress-${stamp}.bak"
+  local backup="${file}.ipv4-egress-${stamp}.bak"
+  cp -a "$file" "$backup"
+  printf '%s\n' "$backup"
 }
 
 patch_xray() {
@@ -58,7 +67,7 @@ patch_xray() {
     return
   fi
 
-  backup_file "$XRAY_CONFIG"
+  XRAY_BACKUP=$(backup_file "$XRAY_CONFIG")
 
   python3 - "$XRAY_CONFIG" <<'PY'
 import json
@@ -97,8 +106,13 @@ path.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n")
 PY
 
   if command -v xray >/dev/null 2>&1; then
-    xray run -test -config "$XRAY_CONFIG"
+    if ! xray run -test -config "$XRAY_CONFIG"; then
+      cp -a "$XRAY_BACKUP" "$XRAY_CONFIG"
+      echo "Xray validation failed; restored ${XRAY_BACKUP}" >&2
+      return 1
+    fi
   fi
+  XRAY_PATCHED=true
 }
 
 patch_hysteria() {
@@ -106,8 +120,12 @@ patch_hysteria() {
     echo "Skip Hysteria2: config not found at $HY2_CONFIG"
     return
   fi
+  if [ "$RESTART_SERVICES" != "true" ] && [[ "$HY2_CONFIG" = /etc/* ]]; then
+    echo "Live Hysteria2 config changes require --restart so failures can be rolled back" >&2
+    return 1
+  fi
 
-  backup_file "$HY2_CONFIG"
+  HY2_BACKUP=$(backup_file "$HY2_CONFIG")
 
   python3 - "$HY2_CONFIG" <<'PY'
 import pathlib
@@ -115,6 +133,25 @@ import sys
 
 path = pathlib.Path(sys.argv[1])
 text = path.read_text()
+
+lines = text.splitlines()
+receive_window_keys = {
+    "initStreamReceiveWindow",
+    "maxStreamReceiveWindow",
+    "initConnReceiveWindow",
+    "maxConnReceiveWindow",
+}
+filtered_lines = []
+in_quic = False
+for line in lines:
+    if line and not line[0].isspace() and not line.startswith("#"):
+        in_quic = line.strip() == "quic:"
+    key = line.strip().split(":", 1)[0]
+    if in_quic and line[:1].isspace() and key in receive_window_keys:
+        continue
+    filtered_lines.append(line)
+lines = filtered_lines
+text = "\n".join(lines).rstrip() + "\n"
 
 sniff_block = """\
 # IPv4-only VPS compatibility: recover domains from client IP destinations
@@ -135,6 +172,32 @@ if "\nsniff:" not in text:
     else:
         text = text.rstrip() + "\n\n" + sniff_block
 
+if "\nspeedTest:" not in text:
+    speed_test = "\n# Enable Hysteria's official client-side speed/health probe.\nspeedTest: true\n"
+    marker = "\ntrafficStats:"
+    if marker in text:
+        text = text.replace(marker, speed_test + marker, 1)
+    else:
+        text = text.rstrip() + speed_test
+
+if "\nresolver:" not in text:
+    resolver = """
+
+# Use DNS over HTTPS to avoid intermittent UDP resolver loss on IPv4-only VPS hosts.
+resolver:
+  type: https
+  https:
+    addr: 1.1.1.1:443
+    timeout: 10s
+    sni: cloudflare-dns.com
+    insecure: false
+"""
+    marker = "\ntrafficStats:"
+    if marker in text:
+        text = text.replace(marker, resolver.rstrip() + marker, 1)
+    else:
+        text = text.rstrip() + resolver
+
 if "\noutbounds:" not in text:
     text = text.rstrip() + """
 
@@ -148,6 +211,15 @@ outbounds:
 
 path.write_text(text)
 PY
+  HY2_PATCHED=true
+}
+
+restore_config() {
+  local config="$1" backup="$2" service="$3"
+  if [ -n "$backup" ] && [ -f "$backup" ]; then
+    cp -a "$backup" "$config"
+    systemctl restart "$service" >/dev/null 2>&1 || true
+  fi
 }
 
 restart_if_requested() {
@@ -156,10 +228,27 @@ restart_if_requested() {
     return
   fi
 
-  if command -v systemctl >/dev/null 2>&1; then
-    systemctl restart "$XRAY_SERVICE" || true
-    systemctl restart "$HY2_SERVICE" || true
-    systemctl is-active "$XRAY_SERVICE" "$HY2_SERVICE" || true
+  if ! command -v systemctl >/dev/null 2>&1; then
+    echo "systemctl is required for --restart" >&2
+    return 1
+  fi
+
+  if [ "$XRAY_PATCHED" = "true" ]; then
+    if ! systemctl restart "$XRAY_SERVICE" || ! systemctl is-active --quiet "$XRAY_SERVICE"; then
+      restore_config "$XRAY_CONFIG" "$XRAY_BACKUP" "$XRAY_SERVICE"
+      restore_config "$HY2_CONFIG" "$HY2_BACKUP" "$HY2_SERVICE"
+      echo "Xray restart failed; restored runtime configs" >&2
+      return 1
+    fi
+  fi
+
+  if [ "$HY2_PATCHED" = "true" ]; then
+    if ! systemctl restart "$HY2_SERVICE" || ! systemctl is-active --quiet "$HY2_SERVICE"; then
+      restore_config "$XRAY_CONFIG" "$XRAY_BACKUP" "$XRAY_SERVICE"
+      restore_config "$HY2_CONFIG" "$HY2_BACKUP" "$HY2_SERVICE"
+      echo "Hysteria2 restart failed; restored runtime configs" >&2
+      return 1
+    fi
   fi
 }
 

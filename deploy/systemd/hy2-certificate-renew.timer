@@ -1,0 +1,11 @@
+[Unit]
+Description=Check the Hysteria2 certificate twice daily
+
+[Timer]
+OnCalendar=*-*-* 03,15:17:00
+RandomizedDelaySec=30m
+Persistent=true
+Unit=hy2-certificate-renew.service
+
+[Install]
+WantedBy=timers.target

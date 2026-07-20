@@ -1,0 +1,12 @@
+[Unit]
+Description=Run the Hysteria2 health check every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30s
+Persistent=true
+Unit=hy2-healthcheck.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,9 @@
+[Unit]
+Description=Hysteria2 end-to-end dependency health check and local self-repair
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/default/hy2-guardian
+ExecStart=/usr/local/sbin/hy2-healthcheck --repair
