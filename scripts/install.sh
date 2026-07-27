@@ -1879,7 +1879,7 @@ main() {
   cd "$ROOT_DIR"
 
   # 先拉取基础镜像
-  $COMPOSE_CMD -f "$COMPOSE_FILE" pull mysql redis 2>/dev/null || true
+  $COMPOSE_CMD -f "$COMPOSE_FILE" --env-file "$ENV_FILE" pull mysql redis 2>/dev/null || true
 
   # 构建并启动
   $COMPOSE_CMD -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --build
@@ -1890,10 +1890,10 @@ main() {
   sleep 5
 
   # 检查容器状态
-  if ! $COMPOSE_CMD -f "$COMPOSE_FILE" ps --format json 2>/dev/null | grep -q '"State":"running"'; then
-    if ! $COMPOSE_CMD -f "$COMPOSE_FILE" ps | grep -q "Up"; then
+  if ! $COMPOSE_CMD -f "$COMPOSE_FILE" --env-file "$ENV_FILE" ps --format json 2>/dev/null | grep -q '"State":"running"'; then
+    if ! $COMPOSE_CMD -f "$COMPOSE_FILE" --env-file "$ENV_FILE" ps | grep -q "Up"; then
       error "服务启动失败，请检查日志:"
-      echo "  $COMPOSE_CMD -f $COMPOSE_FILE logs"
+      echo "  $COMPOSE_CMD -f $COMPOSE_FILE --env-file $ENV_FILE logs"
       exit 1
     fi
   fi
@@ -1914,7 +1914,7 @@ main() {
   # 9. 从日志中提取默认管理员密码
   ADMIN_PASSWORD=""
   for i in {1..10}; do
-    ADMIN_PASSWORD=$($COMPOSE_CMD -f "$COMPOSE_FILE" logs backend 2>/dev/null | grep "Default admin password:" | tail -1 | sed 's/.*Default admin password: //' || true)
+    ADMIN_PASSWORD=$($COMPOSE_CMD -f "$COMPOSE_FILE" --env-file "$ENV_FILE" logs backend 2>/dev/null | grep "Default admin password:" | tail -1 | sed 's/.*Default admin password: //' || true)
     if [ -n "$ADMIN_PASSWORD" ]; then
       break
     fi
@@ -1949,7 +1949,7 @@ main() {
   if [ -n "$ADMIN_PASSWORD" ]; then
     echo -e "  密码:   ${YELLOW}${ADMIN_PASSWORD}${NC}"
   else
-    echo -e "  密码:   ${YELLOW}(请查看日志: $COMPOSE_CMD -f $COMPOSE_FILE logs backend | grep 'Default admin password')${NC}"
+    echo -e "  密码:   ${YELLOW}(请查看日志: $COMPOSE_CMD -f $COMPOSE_FILE --env-file $ENV_FILE logs backend | grep 'Default admin password')${NC}"
   fi
   echo ""
   echo -e "管理员 API Key:"
@@ -1992,9 +1992,9 @@ main() {
 
   echo ""
   echo -e "常用命令:"
-  echo -e "  查看日志: ${BLUE}$COMPOSE_CMD -f $COMPOSE_FILE logs -f${NC}"
-  echo -e "  重启服务: ${BLUE}$COMPOSE_CMD -f $COMPOSE_FILE --env-file .env restart${NC}"
-  echo -e "  停止服务: ${BLUE}$COMPOSE_CMD -f $COMPOSE_FILE --env-file .env down${NC}"
+  echo -e "  查看日志: ${BLUE}$COMPOSE_CMD -f $COMPOSE_FILE --env-file $ENV_FILE logs -f${NC}"
+  echo -e "  重启服务: ${BLUE}$COMPOSE_CMD -f $COMPOSE_FILE --env-file $ENV_FILE restart${NC}"
+  echo -e "  停止服务: ${BLUE}$COMPOSE_CMD -f $COMPOSE_FILE --env-file $ENV_FILE down${NC}"
   echo ""
 
   if [ "${HY2_CONFIGURED:-false}" = "false" ] && [ "${VLESS_CONFIGURED:-false}" = "false" ]; then

@@ -24,7 +24,10 @@ Changes:
   - Hysteria2 server: enable sniffing and set direct outbound mode=4.
   - Hysteria2 resolver: prefer DoH over lossy public UDP DNS.
   - Hysteria2 health: enable the built-in speed test endpoint.
-  - Hysteria2 QUIC: remove unmeasured receive-window overrides.
+  - Hysteria2 QUIC: use a 120-second server idle timeout and remove unsupported
+    server keepalive and unmeasured receive-window overrides.
+  - Hysteria2 congestion control: remove fixed bandwidth overrides so lossy
+    paths use the default BBR controller.
 
 Environment overrides:
   XRAY_CONFIG=/path/to/config.json
@@ -112,6 +115,12 @@ PY
       return 1
     fi
   fi
+  if cmp -s "$XRAY_BACKUP" "$XRAY_CONFIG"; then
+    unlink "$XRAY_BACKUP"
+    XRAY_BACKUP=""
+    echo "Xray config unchanged; skip restart"
+    return
+  fi
   XRAY_PATCHED=true
 }
 
@@ -129,12 +138,30 @@ patch_hysteria() {
 
   python3 - "$HY2_CONFIG" <<'PY'
 import pathlib
+import re
 import sys
 
 path = pathlib.Path(sys.argv[1])
 text = path.read_text()
 
 lines = text.splitlines()
+without_bandwidth = []
+in_bandwidth = False
+for line in lines:
+    is_top_level_key = (
+        bool(line)
+        and not line[0].isspace()
+        and not line.startswith("#")
+    )
+    if is_top_level_key:
+        if re.fullmatch(r"bandwidth:\s*(?:#.*)?", line):
+            in_bandwidth = True
+            continue
+        in_bandwidth = False
+    if not in_bandwidth:
+        without_bandwidth.append(line)
+lines = without_bandwidth
+
 receive_window_keys = {
     "initStreamReceiveWindow",
     "maxStreamReceiveWindow",
@@ -143,15 +170,31 @@ receive_window_keys = {
 }
 filtered_lines = []
 in_quic = False
+quic_seen = False
 for line in lines:
     if line and not line[0].isspace() and not line.startswith("#"):
-        in_quic = line.strip() == "quic:"
+        in_quic = bool(re.fullmatch(r"quic:\s*(?:#.*)?", line))
+        if in_quic:
+            quic_seen = True
+            filtered_lines.append(line)
+            filtered_lines.append("  maxIdleTimeout: 120s")
+            continue
     key = line.strip().split(":", 1)[0]
-    if in_quic and line[:1].isspace() and key in receive_window_keys:
+    if in_quic and line[:1].isspace() and (
+        key in receive_window_keys or key in {"maxIdleTimeout", "keepAlivePeriod"}
+    ):
         continue
     filtered_lines.append(line)
 lines = filtered_lines
 text = "\n".join(lines).rstrip() + "\n"
+
+if not quic_seen:
+    quic_block = "\n# Allow lossy client paths more time to recover before closing the session.\nquic:\n  maxIdleTimeout: 120s\n"
+    marker = "\ntrafficStats:"
+    if marker in text:
+        text = text.replace(marker, quic_block + marker, 1)
+    else:
+        text = text.rstrip() + "\n" + quic_block
 
 sniff_block = """\
 # IPv4-only VPS compatibility: recover domains from client IP destinations
@@ -211,6 +254,12 @@ outbounds:
 
 path.write_text(text)
 PY
+  if cmp -s "$HY2_BACKUP" "$HY2_CONFIG"; then
+    unlink "$HY2_BACKUP"
+    HY2_BACKUP=""
+    echo "Hysteria2 config unchanged; skip restart"
+    return
+  fi
   HY2_PATCHED=true
 }
 

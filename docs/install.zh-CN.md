@@ -139,7 +139,7 @@ docker compose -f deploy/compose/docker-compose.yml --env-file .env up -d --buil
 
 ```bash
 # 检查容器状态
-docker compose -f deploy/compose/docker-compose.yml ps
+docker compose -f deploy/compose/docker-compose.yml --env-file .env ps
 
 # 检查后端健康状态
 curl http://localhost:18080/sub/health
@@ -279,10 +279,10 @@ git pull
 docker compose -f deploy/compose/docker-compose.yml --env-file .env up -d --build
 
 # 查看日志
-docker compose -f deploy/compose/docker-compose.yml logs -f
+docker compose -f deploy/compose/docker-compose.yml --env-file .env logs -f
 
 # 查看特定服务日志
-docker compose -f deploy/compose/docker-compose.yml logs -f backend
+docker compose -f deploy/compose/docker-compose.yml --env-file .env logs -f backend
 ```
 
 ## 数据备份
@@ -291,11 +291,11 @@ MySQL 数据存储在 Docker volume 中。备份方法：
 
 ```bash
 # 备份数据库
-docker compose -f deploy/compose/docker-compose.yml exec mysql \
+docker compose -f deploy/compose/docker-compose.yml --env-file .env exec mysql \
   mysqldump -u root -p subscription > backup.sql
 
 # 恢复数据库
-docker compose -f deploy/compose/docker-compose.yml exec -T mysql \
+docker compose -f deploy/compose/docker-compose.yml --env-file .env exec -T mysql \
   mysql -u root -p subscription < backup.sql
 ```
 

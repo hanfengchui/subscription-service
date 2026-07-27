@@ -10,7 +10,7 @@ services:
     env_file:
       - ../../.env
     ports:
-      - "127.0.0.1:${HY2_AUTH_PORT:-9998}:${HY2_AUTH_PORT:-9998}"
+      - "127.0.0.1:${HY2_AUTH_PORT:?load the deployment .env with --env-file}:${HY2_AUTH_PORT:?load the deployment .env with --env-file}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
@@ -54,17 +54,17 @@ services:
   mysql:
     image: mysql:8.0
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
-      MYSQL_USER: ${MYSQL_USER}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?load the deployment .env with --env-file}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?load the deployment .env with --env-file}
+      MYSQL_USER: ${MYSQL_USER:?load the deployment .env with --env-file}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?load the deployment .env with --env-file}
     volumes:
       - mysql-data:/var/lib/mysql
     restart: unless-stopped
     networks:
       - app-network
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:?load the deployment .env with --env-file}"]
       interval: 5s
       timeout: 5s
       retries: 10

@@ -364,13 +364,13 @@ subscription-service/
 
 ```bash
 # 查看服务状态
-docker compose -f deploy/compose/docker-compose.yml ps
+docker compose -f deploy/compose/docker-compose.yml --env-file .env ps
 
 # 查看日志
-docker compose -f deploy/compose/docker-compose.yml logs -f
+docker compose -f deploy/compose/docker-compose.yml --env-file .env logs -f
 
 # 查看特定服务日志
-docker compose -f deploy/compose/docker-compose.yml logs -f backend
+docker compose -f deploy/compose/docker-compose.yml --env-file .env logs -f backend
 
 # 重启服务
 docker compose -f deploy/compose/docker-compose.yml --env-file .env restart
@@ -424,7 +424,7 @@ A: 首次部署时会自动创建默认管理员账号：
 
 如果错过了密码显示，可以通过以下命令查看：
 ```bash
-docker compose logs backend | grep "Default admin password"
+docker compose -f deploy/compose/docker-compose.yml --env-file .env logs backend | grep "Default admin password"
 ```
 
 **Q: 忘记管理员密码怎么办？**

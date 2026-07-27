@@ -366,13 +366,13 @@ subscription-service/
 
 ```bash
 # View service status
-docker compose -f deploy/compose/docker-compose.yml ps
+docker compose -f deploy/compose/docker-compose.yml --env-file .env ps
 
 # View logs
-docker compose -f deploy/compose/docker-compose.yml logs -f
+docker compose -f deploy/compose/docker-compose.yml --env-file .env logs -f
 
 # View specific service logs
-docker compose -f deploy/compose/docker-compose.yml logs -f backend
+docker compose -f deploy/compose/docker-compose.yml --env-file .env logs -f backend
 
 # Restart services
 docker compose -f deploy/compose/docker-compose.yml --env-file .env restart
@@ -426,7 +426,7 @@ A: A default admin account is automatically created on first deployment:
 
 If you missed the password display, you can view it with:
 ```bash
-docker compose logs backend | grep "Default admin password"
+docker compose -f deploy/compose/docker-compose.yml --env-file .env logs backend | grep "Default admin password"
 ```
 
 **Q: What if I forgot the admin password?**
